@@ -13,6 +13,7 @@ from prompts.templates import PromptMode
 
 _WM_HOTKEY = 0x0312
 _WM_QUIT = 0x0012
+_PM_NOREMOVE = 0x0000
 _MOD_ALT = 0x0001
 _MOD_CONTROL = 0x0002
 _MOD_SHIFT = 0x0004
@@ -143,6 +144,11 @@ class _WindowsHotkeyBackend(_HotkeyBackend):
         kernel32 = ctypes.windll.kernel32
         message = wintypes.MSG()
         self._thread_id = kernel32.GetCurrentThreadId()
+
+        # A thread-specific hotkey registration needs a message queue before
+        # RegisterHotKey() is called. PeekMessageW with PM_NOREMOVE creates the
+        # queue without consuming any messages.
+        user32.PeekMessageW(ctypes.byref(message), None, 0, 0, _PM_NOREMOVE)
 
         try:
             for hotkey_id, (combo, mode) in enumerate(self._hotkey_map.items(), start=1):

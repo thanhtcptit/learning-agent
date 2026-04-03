@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from core.hotkey import GlobalHotkeyListener
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
+from core.hotkey import GlobalHotkeyListener
 from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtWidgets import (
     QFrame,
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.orchestrator import AppController
-from session.manager import ConversationSession
+from session.manager import ConversationMessage, ConversationSession
 from ui.chat_widget import ChatTranscript
 from ui.input_box import MessageInput
 from ui.settings_popup import SettingsPopup
@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._controller = controller
         self._hotkey_listener = hotkey_listener
+        self._hotkey_pending = False
         self._build_ui()
         self._connect_signals()
         self._apply_initial_state()
@@ -180,8 +181,9 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self._controller.current_session_changed.connect(self._load_session)
         self._controller.message_upserted.connect(self.transcript.upsert_message)
+        self._controller.message_upserted.connect(self._maybe_present_for_hotkey)
         self._controller.busy_changed.connect(self._set_busy)
-        self._hotkey_listener.hotkey_triggered.connect(self._present_for_hotkey)
+        self._hotkey_listener.hotkey_triggered.connect(self._queue_hotkey_presentation)
 
         self.settings_button.clicked.connect(self._toggle_settings_popup)
         self.send_button.clicked.connect(self._on_send_clicked)
@@ -197,7 +199,27 @@ class MainWindow(QMainWindow):
 
         self.settings_popup.show_near(self.settings_button)
 
-    def _present_for_hotkey(self, _mode: object | None = None) -> None:
+    def _queue_hotkey_presentation(self, _mode: object | None = None) -> None:
+        self._hotkey_pending = True
+        self._show_for_hotkey()
+
+    def _maybe_present_for_hotkey(self, message: object) -> None:
+        if not self._hotkey_pending:
+            return
+
+        if not isinstance(message, ConversationMessage):
+            return
+
+        if message.role != "user":
+            return
+
+        if not message.content.strip():
+            return
+
+        self._hotkey_pending = False
+        self._focus_for_hotkey()
+
+    def _show_for_hotkey(self) -> None:
         cursor_position = QCursor.pos()
         screen = QGuiApplication.screenAt(cursor_position) or QGuiApplication.primaryScreen()
         if screen is not None:
@@ -210,6 +232,8 @@ class MainWindow(QMainWindow):
             self.show()
 
         self.raise_()
+
+    def _focus_for_hotkey(self) -> None:
         self.activateWindow()
         self.input_box.setFocus(Qt.FocusReason.ShortcutFocusReason)
 

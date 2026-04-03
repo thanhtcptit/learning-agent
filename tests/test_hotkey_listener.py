@@ -1,8 +1,53 @@
 from __future__ import annotations
 
+import core.hotkey as hotkey_module
+
 from prompts.templates import PromptMode
 
 from core.hotkey import GlobalHotkeyListener
+
+
+def test_windows_hotkey_backend_initializes_message_queue_before_registration(monkeypatch) -> None:
+    events: list[str] = []
+
+    class FakeUser32:
+        def PeekMessageW(self, *args) -> int:
+            events.append("peek")
+            return 1
+
+        def RegisterHotKey(self, *args) -> int:
+            events.append("register")
+            return 1
+
+        def UnregisterHotKey(self, *args) -> int:
+            events.append("unregister")
+            return 1
+
+        def PostThreadMessageW(self, *args) -> int:
+            events.append("post")
+            return 1
+
+        def GetMessageW(self, *args) -> int:
+            events.append("get-message")
+            return 0
+
+    class FakeKernel32:
+        def GetCurrentThreadId(self) -> int:
+            events.append("thread-id")
+            return 123
+
+    class FakeWindll:
+        user32 = FakeUser32()
+        kernel32 = FakeKernel32()
+
+    monkeypatch.setattr(hotkey_module.ctypes, "windll", FakeWindll())
+
+    backend = hotkey_module._WindowsHotkeyBackend({"<alt>+e": PromptMode.SIMPLE}, lambda _mode: None)
+    backend._stop_event.set()
+
+    backend._run()
+
+    assert events == ["thread-id", "peek", "register", "unregister"]
 
 
 def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
