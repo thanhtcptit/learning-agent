@@ -1,0 +1,16 @@
+[
+    {
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "base_url": "https://api.openai.com/v1",
+        "api_key_env": "OPENAI_API_KEY"
+    },
+    {
+        "provider": "openrouter",
+        "model": "openai/gpt-4.1",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "site_url_env": "OPENROUTER_SITE_URL",
+        "app_name_env": "OPENROUTER_APP_NAME"
+    }
+]

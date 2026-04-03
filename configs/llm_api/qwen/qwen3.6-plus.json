@@ -1,0 +1,6 @@
+[
+    {
+        "provider": "openrouter",
+        "model": "qwen/qwen3.6-plus-preview:free"
+    }
+]

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "learning-agent"
+version = "0.1.0"
+description = "Windows AI learning assistant"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "PySide6>=6.6",
+    "httpx>=0.27",
+    "pynput>=1.7",
+    "pyperclip>=1.9",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["core*", "llm*", "prompts*", "session*", "ui*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
