@@ -8,12 +8,12 @@ def test_session_manager_creates_session_and_updates_title() -> None:
     manager = SessionManager()
 
     current = manager.current_session()
-    message = manager.append_message("user", "Explain transformers in machine learning.", mode=PromptMode.SIMPLE.value)
+    message = manager.append_message("user", "Explain transformers in machine learning.", mode=PromptMode.EXPLAIN.value)
 
     assert current.id == manager.current_session().id
     assert current.title == "Explain transformers in machine learning."
     assert message.role == "user"
-    assert message.mode == PromptMode.SIMPLE.value
+    assert message.mode == PromptMode.EXPLAIN.value
 
 
 def test_session_manager_selects_session_and_updates_messages() -> None:
@@ -48,7 +48,7 @@ def test_llm_history_skips_empty_content_and_excludes_recent_messages() -> None:
 def test_session_manager_round_trips_through_json_file(tmp_path) -> None:
     manager = SessionManager()
     first_session = manager.current_session()
-    manager.append_message("user", "persist me", mode=PromptMode.SIMPLE.value)
+    manager.append_message("user", "persist me", mode=PromptMode.EXPLAIN.value)
     second_session = manager.create_session("Second")
     manager.append_message("assistant", "reply")
 

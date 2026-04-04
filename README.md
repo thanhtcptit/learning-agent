@@ -56,7 +56,7 @@ uv sync
 # 🔧 How It Works
 
 1. User highlights text anywhere on screen
-2. Presses a shortcut (e.g., `Alt + E`)
+2. Presses a shortcut (e.g., `Alt + D`, `Alt + E`, or `Alt + S`)
 3. Program:
 
    * Simulates `Ctrl + C`
@@ -69,27 +69,27 @@ uv sync
 
 # 🧠 Prompt Modes
 
-### Explain (Simple)
+### Definition
 
 ```
-Explain the following text in simple terms (like for a beginner):
+Define the following word or term in {target_language}:
 
 {text}
 ```
 
-### Explain (Detailed)
+### Explain
 
 ```
-Provide a detailed explanation of the following text.
-Include examples and intuition:
+Explain the meaning of the following text in {target_language}.
+Use clear language, intuition, and examples:
 
 {text}
 ```
 
-### Translate
+### Summary
 
 ```
-Translate the following text to {target_language}:
+Summarize the following text in {target_language}:
 
 {text}
 ```
@@ -147,13 +147,16 @@ python main.py
 * Highlight any text
 * Press:
 
-  * `Alt + E` → simple explanation
-  * `Alt + D` → deep explanation
-  * `Alt + T` → translation
+  * `Alt + D` → definition mode
+  * `Alt + E` → explain mode
+  * `Alt + S` → summary mode
+  * `Alt + L` → toggle between the chosen language and English
   * `Alt + X` → exit the program
   * `Esc` → minimize the chat window to tray
 * Check chat window output
 * Press the settings icon to open the popup and disable hotkeys if needed
+
+The chosen language defaults to Vietnamese and is saved between runs.
 
 ---
 

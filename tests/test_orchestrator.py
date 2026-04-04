@@ -48,7 +48,7 @@ def test_submit_text_appends_user_and_streamed_assistant_message(monkeypatch) ->
     observed_messages = []
     controller.message_upserted.connect(observed_messages.append)
 
-    controller.submit_text("Explain vectors", PromptMode.SIMPLE, "English")
+    controller.submit_text("Explain vectors", PromptMode.EXPLAIN, "English")
 
     session = controller.current_session
 
@@ -56,7 +56,11 @@ def test_submit_text_appends_user_and_streamed_assistant_message(monkeypatch) ->
     assert session.messages[0].content == "Explain vectors"
     assert session.messages[1].role == "assistant"
     assert session.messages[1].content == "Hello"
-    assert provider.requests[0][0][-1].content == "Explain the following text in simple terms:\n\nExplain vectors"
+    assert provider.requests[0][0][0].content == (
+        "You are a learning assistant. Explain the meaning of the following text in English. "
+        "Use clear language, intuition, and examples."
+    )
+    assert provider.requests[0][0][-1].content == "Explain the following text:\n\nExplain vectors"
     assert observed_messages[-1].content == "Hello"
 
 
@@ -67,7 +71,7 @@ def test_handle_hotkey_captures_clipboard_text(monkeypatch) -> None:
     clipboard = FakeClipboardService("Selection from another app")
     controller = AppController(provider, clipboard_service=clipboard)
 
-    controller.handle_hotkey(PromptMode.DETAILED)
+    controller.handle_hotkey(PromptMode.DEFINITION)
 
     session = controller.current_session
 
@@ -75,9 +79,9 @@ def test_handle_hotkey_captures_clipboard_text(monkeypatch) -> None:
     assert session.messages[0].role == "user"
     assert session.messages[0].content == "Selection from another app"
     assert session.messages[1].content == "Hello"
-    assert provider.requests[0][0][-1].content == (
-        "Provide a detailed explanation of the following text:\n\nSelection from another app"
-    )
+    assert provider.requests[0][0][0].content.startswith("You are a dictionary and language-learning assistant.")
+    assert "Vietnamese" in provider.requests[0][0][0].content
+    assert provider.requests[0][0][-1].content == "Define the following word or term:\n\nSelection from another app"
 
 
 def test_delete_session_updates_current_session(monkeypatch) -> None:
@@ -115,3 +119,40 @@ def test_set_provider_switches_active_config() -> None:
 
     assert controller.provider_config == next_config
     assert created_configs == [next_config]
+
+
+def test_toggle_target_language_switches_between_preferred_and_english() -> None:
+    controller = AppController(FakeProvider(), target_language="Vietnamese")
+    current_languages: list[str] = []
+    preferred_languages: list[str] = []
+
+    controller.current_language_changed.connect(current_languages.append)
+    controller.preferred_language_changed.connect(preferred_languages.append)
+
+    assert controller.preferred_language == "Vietnamese"
+    assert controller.target_language == "Vietnamese"
+
+    controller.toggle_target_language()
+    assert controller.preferred_language == "Vietnamese"
+    assert controller.target_language == "English"
+
+    controller.toggle_target_language()
+    assert controller.target_language == "Vietnamese"
+    assert current_languages == ["English", "Vietnamese"]
+    assert preferred_languages == []
+
+
+def test_set_target_language_updates_preferred_and_current_language() -> None:
+    controller = AppController(FakeProvider(), target_language="Vietnamese")
+    current_languages: list[str] = []
+    preferred_languages: list[str] = []
+
+    controller.current_language_changed.connect(current_languages.append)
+    controller.preferred_language_changed.connect(preferred_languages.append)
+
+    controller.set_target_language("French")
+
+    assert controller.preferred_language == "French"
+    assert controller.target_language == "French"
+    assert current_languages == ["French"]
+    assert preferred_languages == ["French"]

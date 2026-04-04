@@ -179,6 +179,13 @@ def test_main_window_close_event_allows_exit_without_tray() -> None:
 
 
 def test_main_window_restores_from_tray() -> None:
+    class DummyTranscript:
+        def __init__(self) -> None:
+            self.scroll_calls = 0
+
+        def scroll_to_bottom(self) -> None:
+            self.scroll_calls += 1
+
     class DummyWindow:
         def __init__(self) -> None:
             self.minimized = True
@@ -187,6 +194,7 @@ def test_main_window_restores_from_tray() -> None:
             self.show_normal_calls = 0
             self.raise_calls = 0
             self.activate_calls = 0
+            self.transcript = DummyTranscript()
 
         def isMinimized(self) -> bool:
             return self.minimized
@@ -209,6 +217,9 @@ def test_main_window_restores_from_tray() -> None:
         def activateWindow(self) -> None:
             self.activate_calls += 1
 
+        def _scroll_transcript_to_bottom(self) -> None:
+            self.transcript.scroll_to_bottom()
+
     window = DummyWindow()
 
     main_window_module.MainWindow._restore_from_tray(window)
@@ -217,6 +228,250 @@ def test_main_window_restores_from_tray() -> None:
     assert window.show_calls == 0
     assert window.raise_calls == 1
     assert window.activate_calls == 1
+    assert window.transcript.scroll_calls == 1
+
+
+def test_main_window_scrolls_transcript_to_bottom_when_hotkey_popup_occurs(monkeypatch) -> None:
+    class DummyTranscript:
+        def __init__(self) -> None:
+            self.scroll_calls = 0
+
+        def scroll_to_bottom(self) -> None:
+            self.scroll_calls += 1
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.minimized = False
+            self.visible = True
+            self.show_calls = 0
+            self.raise_calls = 0
+            self.move_calls = 0
+            self.transcript = DummyTranscript()
+
+        def isMinimized(self) -> bool:
+            return self.minimized
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def size(self) -> QSize:
+            return QSize(480, 652)
+
+        def showNormal(self) -> None:
+            self.show_calls += 1
+            self.minimized = False
+            self.visible = True
+
+        def show(self) -> None:
+            self.show_calls += 1
+            self.visible = True
+
+        def move(self, _position) -> None:
+            self.move_calls += 1
+
+        def raise_(self) -> None:
+            self.raise_calls += 1
+
+        def _scroll_transcript_to_bottom(self) -> None:
+            self.transcript.scroll_to_bottom()
+
+    window = DummyWindow()
+
+    monkeypatch.setattr(main_window_module.QCursor, "pos", staticmethod(lambda: QPoint(100, 100)))
+    monkeypatch.setattr(main_window_module.QGuiApplication, "screenAt", staticmethod(lambda _point: None))
+    monkeypatch.setattr(main_window_module.QGuiApplication, "primaryScreen", staticmethod(lambda: None))
+
+    main_window_module.MainWindow._show_for_hotkey(window)
+
+    assert window.show_calls == 0
+    assert window.raise_calls == 1
+    assert window.move_calls == 0
+    assert window.transcript.scroll_calls == 1
+
+
+def test_main_window_repositions_only_when_minimized(monkeypatch) -> None:
+    class DummyTranscript:
+        def __init__(self) -> None:
+            self.scroll_calls = 0
+
+        def scroll_to_bottom(self) -> None:
+            self.scroll_calls += 1
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.minimized = True
+            self.visible = False
+            self.show_calls = 0
+            self.show_normal_calls = 0
+            self.raise_calls = 0
+            self.move_positions: list[object] = []
+            self.transcript = DummyTranscript()
+
+        def isMinimized(self) -> bool:
+            return self.minimized
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def size(self) -> QSize:
+            return QSize(480, 652)
+
+        def showNormal(self) -> None:
+            self.show_normal_calls += 1
+            self.minimized = False
+            self.visible = True
+
+        def show(self) -> None:
+            self.show_calls += 1
+            self.visible = True
+
+        def move(self, position) -> None:
+            self.move_positions.append(position)
+
+        def raise_(self) -> None:
+            self.raise_calls += 1
+
+        def _scroll_transcript_to_bottom(self) -> None:
+            self.transcript.scroll_to_bottom()
+
+    class DummyScreen:
+        def availableGeometry(self) -> QRect:
+            return QRect(0, 0, 1200, 800)
+
+    window = DummyWindow()
+
+    monkeypatch.setattr(main_window_module.QCursor, "pos", staticmethod(lambda: QPoint(100, 100)))
+    monkeypatch.setattr(main_window_module.QGuiApplication, "screenAt", staticmethod(lambda _point: DummyScreen()))
+    monkeypatch.setattr(main_window_module.QGuiApplication, "primaryScreen", staticmethod(lambda: DummyScreen()))
+
+    main_window_module.MainWindow._show_for_hotkey(window)
+
+    assert window.show_normal_calls == 1
+    assert window.show_calls == 0
+    assert window.raise_calls == 1
+    assert len(window.move_positions) == 1
+    assert window.transcript.scroll_calls == 1
+
+
+def test_main_window_repositions_when_restoring_from_tray(monkeypatch) -> None:
+    class DummyTranscript:
+        def __init__(self) -> None:
+            self.scroll_calls = 0
+
+        def scroll_to_bottom(self) -> None:
+            self.scroll_calls += 1
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._tray_hidden = True
+            self.minimized = False
+            self.visible = False
+            self.show_calls = 0
+            self.show_normal_calls = 0
+            self.raise_calls = 0
+            self.move_positions: list[object] = []
+            self.transcript = DummyTranscript()
+
+        def isMinimized(self) -> bool:
+            return self.minimized
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def size(self) -> QSize:
+            return QSize(480, 652)
+
+        def showNormal(self) -> None:
+            self.show_normal_calls += 1
+            self.minimized = False
+            self.visible = True
+
+        def show(self) -> None:
+            self.show_calls += 1
+            self.visible = True
+
+        def move(self, position) -> None:
+            self.move_positions.append(position)
+
+        def raise_(self) -> None:
+            self.raise_calls += 1
+
+        def _scroll_transcript_to_bottom(self) -> None:
+            self.transcript.scroll_to_bottom()
+
+    class DummyScreen:
+        def availableGeometry(self) -> QRect:
+            return QRect(0, 0, 1200, 800)
+
+    window = DummyWindow()
+
+    monkeypatch.setattr(main_window_module.QCursor, "pos", staticmethod(lambda: QPoint(100, 100)))
+    monkeypatch.setattr(main_window_module.QGuiApplication, "screenAt", staticmethod(lambda _point: DummyScreen()))
+    monkeypatch.setattr(main_window_module.QGuiApplication, "primaryScreen", staticmethod(lambda: DummyScreen()))
+
+    main_window_module.MainWindow._show_for_hotkey(window)
+
+    assert window.show_normal_calls == 0
+    assert window.show_calls == 1
+    assert window.raise_calls == 1
+    assert len(window.move_positions) == 1
+    assert window.transcript.scroll_calls == 1
+
+
+def test_main_window_updates_language_indicator() -> None:
+    class DummyLabel:
+        def __init__(self) -> None:
+            self.text = ""
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.language_indicator = DummyLabel()
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow._set_current_language(window, "English")
+
+    assert window.language_indicator.text == "Language: English"
+
+
+def test_main_window_defers_initial_scroll_until_first_show(monkeypatch) -> None:
+    class DummyTranscript:
+        def __init__(self) -> None:
+            self.scroll_calls = 0
+
+        def scroll_to_bottom(self) -> None:
+            self.scroll_calls += 1
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._initial_show_scroll_pending = True
+            self.transcript = DummyTranscript()
+
+        def _scroll_transcript_to_bottom(self) -> None:
+            self.transcript.scroll_to_bottom()
+
+    scheduled_calls: list[tuple[int, object]] = []
+    monkeypatch.setattr(
+        main_window_module.QTimer,
+        "singleShot",
+        staticmethod(lambda delay, callback: scheduled_calls.append((delay, callback))),
+    )
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow._scroll_latest_messages_after_initial_show(window)
+
+    assert window._initial_show_scroll_pending is False
+    assert len(scheduled_calls) == 1
+    assert scheduled_calls[0][0] == 0
+    assert window.transcript.scroll_calls == 0
+
+    scheduled_calls[0][1]()
+
+    assert window.transcript.scroll_calls == 1
 
 
 def test_main_window_request_minimize_to_tray_hides_window_when_tray_exists() -> None:

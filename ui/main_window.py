@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtGui import QCloseEvent, QCursor, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer
+from PySide6.QtGui import QCloseEvent, QCursor, QGuiApplication, QKeySequence, QShortcut, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -57,6 +57,8 @@ class MainWindow(QMainWindow):
         self._allow_close = False
         self._tray_icon: QSystemTrayIcon | None = None
         self._escape_shortcut: QShortcut | None = None
+        self._initial_show_scroll_pending = True
+        self._tray_hidden = False
         self._build_ui()
         self._create_tray_icon()
         self._connect_signals()
@@ -64,7 +66,7 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         self.setWindowTitle("AI Learning Assistant")
-        self.resize(480, 752)
+        self.resize(480, 652)
         self.setMinimumSize(420, 620)
 
         self.setObjectName("RootSurface")
@@ -90,8 +92,12 @@ class MainWindow(QMainWindow):
         title_label = QLabel("AI Learning Assistant")
         title_label.setObjectName("AppTitle")
 
+        self.language_indicator = QLabel()
+        self.language_indicator.setObjectName("LanguageBadge")
+
         header_layout.addWidget(title_label)
         header_layout.addStretch(1)
+        header_layout.addWidget(self.language_indicator)
         header_layout.addWidget(self.settings_button)
 
         content_frame = QFrame()
@@ -132,6 +138,15 @@ class MainWindow(QMainWindow):
             QLabel#AppTitle {
                 color: #0f172a;
                 font-size: 16px;
+                font-weight: 700;
+            }
+            QLabel#LanguageBadge {
+                background: #eff6ff;
+                color: #1d4ed8;
+                border: 1px solid #bfdbfe;
+                border-radius: 999px;
+                padding: 4px 10px;
+                font-size: 12px;
                 font-weight: 700;
             }
             QFrame#ContentPanel {
@@ -191,6 +206,7 @@ class MainWindow(QMainWindow):
         self._controller.message_upserted.connect(self.transcript.upsert_message)
         self._controller.message_upserted.connect(self._maybe_present_for_hotkey)
         self._controller.busy_changed.connect(self._set_busy)
+        self._controller.current_language_changed.connect(self._set_current_language)
         self._hotkey_listener.hotkey_triggered.connect(self._queue_hotkey_presentation)
 
         self._escape_shortcut = QShortcut(QKeySequence("Esc"), self)
@@ -234,16 +250,27 @@ class MainWindow(QMainWindow):
             self._restore_from_tray()
 
     def _restore_from_tray(self) -> None:
+        tray_hidden = getattr(self, "_tray_hidden", False)
+        if self.isMinimized() or tray_hidden:
+            cursor_position = QCursor.pos()
+            screen = QGuiApplication.screenAt(cursor_position) or QGuiApplication.primaryScreen()
+            if screen is not None:
+                target_position = _calculate_hotkey_window_position(screen.availableGeometry(), cursor_position, self.size())
+                self.move(target_position)
+
         if self.isMinimized():
             self.showNormal()
-        if not self.isVisible():
+        elif not self.isVisible():
             self.show()
 
         self.raise_()
         self.activateWindow()
+        self._scroll_transcript_to_bottom()
+        self._tray_hidden = False
 
     def request_minimize_to_tray(self) -> None:
         if self._tray_icon is not None:
+            self._tray_hidden = True
             self.hide()
             return
 
@@ -260,6 +287,18 @@ class MainWindow(QMainWindow):
 
     def _apply_initial_state(self) -> None:
         self._load_session(self._controller.current_session)
+        self._set_current_language(self._controller.target_language)
+
+    def _scroll_latest_messages_after_initial_show(self) -> None:
+        if not self._initial_show_scroll_pending:
+            return
+
+        self._initial_show_scroll_pending = False
+        QTimer.singleShot(0, self._scroll_transcript_to_bottom)
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._scroll_latest_messages_after_initial_show()
 
     def _toggle_settings_popup(self) -> None:
         if self.settings_popup.isVisible():
@@ -290,11 +329,13 @@ class MainWindow(QMainWindow):
         self._focus_for_hotkey()
 
     def _show_for_hotkey(self) -> None:
-        cursor_position = QCursor.pos()
-        screen = QGuiApplication.screenAt(cursor_position) or QGuiApplication.primaryScreen()
-        if screen is not None:
-            target_position = _calculate_hotkey_window_position(screen.availableGeometry(), cursor_position, self.size())
-            self.move(target_position)
+        reposition = self.isMinimized() or getattr(self, "_tray_hidden", False)
+        if reposition:
+            cursor_position = QCursor.pos()
+            screen = QGuiApplication.screenAt(cursor_position) or QGuiApplication.primaryScreen()
+            if screen is not None:
+                target_position = _calculate_hotkey_window_position(screen.availableGeometry(), cursor_position, self.size())
+                self.move(target_position)
 
         if self.isMinimized():
             self.showNormal()
@@ -302,6 +343,8 @@ class MainWindow(QMainWindow):
             self.show()
 
         self.raise_()
+        self._scroll_transcript_to_bottom()
+        self._tray_hidden = False
 
     def _focus_for_hotkey(self) -> None:
         if not self.isVisible():
@@ -312,6 +355,12 @@ class MainWindow(QMainWindow):
 
     def _load_session(self, session: ConversationSession) -> None:
         self.transcript.reset_messages(session.messages)
+
+    def _scroll_transcript_to_bottom(self) -> None:
+        self.transcript.scroll_to_bottom()
+
+    def _set_current_language(self, language: str) -> None:
+        self.language_indicator.setText(f"Language: {language}")
 
     def _on_send_clicked(self, _checked: bool = False) -> None:
         self._on_send_text(self.input_box.text())

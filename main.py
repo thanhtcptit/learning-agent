@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 try:
@@ -12,17 +13,43 @@ except ImportError:  # pragma: no cover - optional during bootstrap
     def load_dotenv(*args, **kwargs) -> bool:
         return False
 
+from core.app_settings import AppSettings, load_app_settings, save_app_settings
 from core.config import DEFAULT_PROVIDER_CONFIG_PATH, build_provider, load_provider_config
-from core.hotkey import EXIT_HOTKEY_ACTION, GlobalHotkeyListener
+from core.hotkey import EXIT_HOTKEY_ACTION, TOGGLE_LANGUAGE_HOTKEY_ACTION, GlobalHotkeyListener
 from core.orchestrator import AppController
-from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode
+from prompts.templates import PromptMode
 from session.manager import SessionManager
 from ui.main_window import MainWindow
+
+
+class HotkeyActionRouter(QObject):
+    def __init__(self, controller: AppController, window: MainWindow) -> None:
+        super().__init__()
+        self._controller = controller
+        self._window = window
+
+    @Slot(object)
+    def handle_action(self, action: object) -> None:
+        if action == EXIT_HOTKEY_ACTION:
+            self._window.request_exit()
+            return
+
+        if action == TOGGLE_LANGUAGE_HOTKEY_ACTION:
+            self._controller.toggle_target_language()
+            return
+
+        if isinstance(action, PromptMode):
+            self._controller.handle_hotkey(action)
 
 
 def _default_session_state_path() -> Path:
     roaming_root = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
     return roaming_root / "learning-agent" / "sessions.json"
+
+
+def _default_app_settings_path() -> Path:
+    roaming_root = Path(os.getenv("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    return roaming_root / "learning-agent" / "settings.json"
 
 
 def _load_session_manager(session_state_path: Path) -> SessionManager:
@@ -32,6 +59,15 @@ def _load_session_manager(session_state_path: Path) -> SessionManager:
         except Exception:
             pass
     return SessionManager()
+
+
+def _load_app_settings(settings_path: Path) -> AppSettings:
+    if settings_path.exists():
+        try:
+            return load_app_settings(settings_path)
+        except Exception:
+            pass
+    return AppSettings()
 
 
 def main() -> int:
@@ -51,32 +87,35 @@ def main() -> int:
         return 1
 
     session_state_path = _default_session_state_path()
+    app_settings_path = _default_app_settings_path()
     session_manager = _load_session_manager(session_state_path)
+    app_settings = _load_app_settings(app_settings_path)
 
     controller = AppController(
         provider,
         provider_config=provider_config,
         provider_factory=build_provider,
-        default_mode=PromptMode.SIMPLE,
-        target_language=DEFAULT_TARGET_LANGUAGE,
+        default_mode=PromptMode.EXPLAIN,
+        target_language=app_settings.preferred_language,
         session_manager=session_manager,
     )
 
     hotkey_listener = GlobalHotkeyListener()
 
     window = MainWindow(controller, hotkey_listener)
+    hotkey_router = HotkeyActionRouter(controller, window)
 
-    def handle_hotkey(action: object) -> None:
-        if action == EXIT_HOTKEY_ACTION:
-            window.request_exit()
-            return
-
-        if isinstance(action, PromptMode):
-            controller.handle_hotkey(action)
-
-    hotkey_listener.hotkey_triggered.connect(handle_hotkey)
+    hotkey_listener.hotkey_triggered.connect(hotkey_router.handle_action)
     hotkey_listener.status_changed.connect(controller.status_changed.emit)
     window.show()
+
+    def save_preferred_language() -> None:
+        try:
+            save_app_settings(app_settings_path, AppSettings(preferred_language=controller.preferred_language))
+        except Exception as exc:  # noqa: BLE001 - settings persistence should not block exit
+            controller.status_changed.emit(f"Failed to save settings: {exc}")
+
+    controller.preferred_language_changed.connect(lambda _language: save_preferred_language())
 
     try:
         hotkey_listener.start()
@@ -90,6 +129,7 @@ def main() -> int:
             controller.status_changed.emit(f"Failed to save sessions: {exc}")
 
     app.aboutToQuit.connect(save_sessions)
+    app.aboutToQuit.connect(save_preferred_language)
     app.aboutToQuit.connect(hotkey_listener.stop)
     app.aboutToQuit.connect(controller.shutdown)
     return app.exec()

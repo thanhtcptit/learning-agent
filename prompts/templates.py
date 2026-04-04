@@ -5,42 +5,44 @@ from enum import Enum
 from llm.base import LLMMessage
 
 
-DEFAULT_TARGET_LANGUAGE = "English"
+DEFAULT_TARGET_LANGUAGE = "Vietnamese"
 
 
 class PromptMode(str, Enum):
-    SIMPLE = "simple_explain"
-    DETAILED = "detailed_explain"
-    TRANSLATE = "translate"
+    DEFINITION = "definition"
+    EXPLAIN = "explain"
+    SUMMARY = "summary"
 
     @property
     def label(self) -> str:
-        if self is PromptMode.SIMPLE:
+        if self is PromptMode.DEFINITION:
+            return "Definition"
+        if self is PromptMode.EXPLAIN:
             return "Explain"
-        if self is PromptMode.DETAILED:
-            return "Explain deeply"
-        return "Translate"
+        return "Summary"
 
 
 def build_messages(text: str, mode: PromptMode, target_language: str = DEFAULT_TARGET_LANGUAGE) -> list[LLMMessage]:
-    if mode is PromptMode.DETAILED:
+    if mode is PromptMode.DEFINITION:
         system_prompt = (
-            "You are a learning assistant. Explain the selected text clearly and in depth. "
-            "Use examples, intuition, and concise structure."
+            "You are a dictionary and language-learning assistant. Define the target word or term in "
+            f"{target_language}. Keep the definition concise, and include 1-2 example usages in the word's original language."
         )
-        user_prompt = f"Provide a detailed explanation of the following text:\n\n{text}"
-    elif mode is PromptMode.TRANSLATE:
+        user_prompt = f"Define the following word or term:\n\n{text}"
+    elif mode is PromptMode.EXPLAIN:
         system_prompt = (
-            "You are a translation assistant. Preserve meaning, formatting, and tone. "
-            "Return only the translated text unless clarification is required."
+            "You are a learning assistant. Explain the meaning of the following text in "
+            f"{target_language}. Use clear language, intuition, and examples."
         )
-        user_prompt = f"Translate the following text to {target_language}:\n\n{text}"
+        user_prompt = f"Explain the following text:\n\n{text}"
+    elif mode is PromptMode.SUMMARY:
+        system_prompt = (
+            "You are a summarization assistant. Summarize the following text in "
+            f"{target_language}. Keep the summary concise and focused on the main ideas."
+        )
+        user_prompt = f"Summarize the following text:\n\n{text}"
     else:
-        system_prompt = (
-            "You are a learning assistant. Explain the selected text in simple terms for a beginner. "
-            "Use plain language and keep the answer focused."
-        )
-        user_prompt = f"Explain the following text in simple terms:\n\n{text}"
+        raise ValueError(f"Unsupported prompt mode: {mode!r}")
 
     return [
         LLMMessage(role="system", content=system_prompt),

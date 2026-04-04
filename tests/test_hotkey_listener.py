@@ -4,7 +4,7 @@ import core.hotkey as hotkey_module
 
 from prompts.templates import PromptMode
 
-from core.hotkey import EXIT_HOTKEY_ACTION, GlobalHotkeyListener
+from core.hotkey import EXIT_HOTKEY_ACTION, TOGGLE_LANGUAGE_HOTKEY_ACTION, GlobalHotkeyListener
 
 
 def test_windows_hotkey_backend_initializes_message_queue_before_registration(monkeypatch) -> None:
@@ -42,7 +42,7 @@ def test_windows_hotkey_backend_initializes_message_queue_before_registration(mo
 
     monkeypatch.setattr(hotkey_module.ctypes, "windll", FakeWindll())
 
-    backend = hotkey_module._WindowsHotkeyBackend({"<alt>+e": PromptMode.SIMPLE}, lambda _mode: None)
+    backend = hotkey_module._WindowsHotkeyBackend({"<alt>+d": PromptMode.DEFINITION}, lambda _mode: None)
     backend._stop_event.set()
 
     backend._run()
@@ -82,7 +82,7 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
 
     listener = GlobalHotkeyListener()
     statuses: list[str] = []
-    triggered: list[PromptMode] = []
+    triggered: list[object] = []
     listener.status_changed.connect(statuses.append)
     listener.hotkey_triggered.connect(triggered.append)
 
@@ -93,8 +93,14 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
 
     backend = backend_holder["backend"]
     assert backend.start_calls == 1
+    assert backend.hotkey_map["<alt>+d"] == PromptMode.DEFINITION
+    assert backend.hotkey_map["<alt>+e"] == PromptMode.EXPLAIN
+    assert backend.hotkey_map["<alt>+s"] == PromptMode.SUMMARY
+    assert backend.hotkey_map["<alt>+l"] == TOGGLE_LANGUAGE_HOTKEY_ACTION
     assert backend.hotkey_map["<alt>+x"] == EXIT_HOTKEY_ACTION
-    backend.trigger(PromptMode.SIMPLE)
+
+    backend.trigger(PromptMode.EXPLAIN)
+    backend.fire(TOGGLE_LANGUAGE_HOTKEY_ACTION)
     backend.fire(EXIT_HOTKEY_ACTION)
 
     listener.stop()
@@ -103,5 +109,5 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
     assert backend.stop_calls == 1
 
     assert events == ["start", "stop"]
-    assert triggered == [PromptMode.SIMPLE, EXIT_HOTKEY_ACTION]
+    assert triggered == [PromptMode.EXPLAIN, TOGGLE_LANGUAGE_HOTKEY_ACTION, EXIT_HOTKEY_ACTION]
     assert statuses == ["Hotkeys active", "Hotkeys stopped"]

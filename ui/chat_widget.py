@@ -43,6 +43,10 @@ class ChatTranscript(QTextBrowser):
             self._messages.append(message)
         self._render()
 
+    def scroll_to_bottom(self) -> None:
+        scrollbar = self.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
     def _reindex(self) -> None:
         self._message_index = {message.id: index for index, message in enumerate(self._messages)}
 
@@ -50,7 +54,8 @@ class ChatTranscript(QTextBrowser):
         if not self._messages:
             html = self._wrap_document(
                 "<div style='opacity: 0.75; font-size: 15px; color: #64748b;'>"
-                "No conversation yet. Highlight text in another app and use Alt+E, Alt+D, or Alt+T."
+                "No conversation yet. Highlight text in another app and use Alt+D, Alt+E, or Alt+S. "
+                "Press Alt+L to switch between your chosen language and English."
                 "</div>"
             )
             self.setHtml(html)
@@ -58,7 +63,7 @@ class ChatTranscript(QTextBrowser):
 
         blocks = [self._render_message(message) for message in self._messages]
         self.setHtml(self._wrap_document("".join(blocks)))
-        self.verticalScrollBar().setValue(self.verticalScrollBar().maximum())
+        self.scroll_to_bottom()
 
     def _render_message(self, message: ConversationMessage) -> str:
         role = message.role.capitalize()

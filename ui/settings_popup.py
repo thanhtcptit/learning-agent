@@ -241,6 +241,8 @@ class SettingsPopup(QDialog):
         self._controller.sessions_changed.connect(self._sync_sessions)
         self._controller.current_session_changed.connect(self._sync_sessions)
         self._controller.current_session_changed.connect(self._sync_llm_selection)
+        self._controller.preferred_language_changed.connect(self._sync_language_input)
+        self._controller.current_language_changed.connect(self._sync_current_language_status)
         self._controller.status_changed.connect(self._set_status)
         self._hotkey_listener.status_changed.connect(self._set_status)
 
@@ -256,7 +258,8 @@ class SettingsPopup(QDialog):
     def _apply_state(self) -> None:
         self._sync_sessions(self._controller.sessions)
         self.mode_combo.setCurrentIndex(self.mode_combo.findData(self._controller.default_mode))
-        self.language_input.setText(self._controller.target_language)
+        self.language_input.setText(self._controller.preferred_language)
+        self._sync_current_language_status(self._controller.target_language)
         self.hotkey_checkbox.blockSignals(True)
         self.hotkey_checkbox.setChecked(self._hotkey_listener.is_running)
         self.hotkey_checkbox.blockSignals(False)
@@ -282,9 +285,22 @@ class SettingsPopup(QDialog):
             self.mode_combo.setCurrentIndex(self.mode_combo.findData(self._controller.default_mode))
             self.mode_combo.blockSignals(False)
 
-            self.language_input.setText(self._controller.target_language)
+            self.language_input.setText(self._controller.preferred_language)
         finally:
             self._updating = False
+
+    def _sync_language_input(self, language: str) -> None:
+        if self._updating:
+            return
+
+        self._updating = True
+        try:
+            self.language_input.setText(language)
+        finally:
+            self._updating = False
+
+    def _sync_current_language_status(self, language: str) -> None:
+        self.status_label.setText(f"Current language: {language}")
 
     def _refresh_catalog(self) -> None:
         self._llm_entries = discover_llm_catalog()

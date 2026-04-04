@@ -16,6 +16,8 @@ class AppController(QObject):
     sessions_changed = Signal(object)
     current_session_changed = Signal(object)
     message_upserted = Signal(object)
+    preferred_language_changed = Signal(str)
+    current_language_changed = Signal(str)
     status_changed = Signal(str)
     error_occurred = Signal(str)
     busy_changed = Signal(bool)
@@ -26,7 +28,7 @@ class AppController(QObject):
         *,
         provider_config: ProviderConfig | None = None,
         provider_factory: Callable[[ProviderConfig], LLMProvider] | None = None,
-        default_mode: PromptMode = PromptMode.SIMPLE,
+        default_mode: PromptMode = PromptMode.EXPLAIN,
         target_language: str = DEFAULT_TARGET_LANGUAGE,
         clipboard_service: ClipboardService | None = None,
         session_manager: SessionManager | None = None,
@@ -38,7 +40,8 @@ class AppController(QObject):
         self._clipboard_service = clipboard_service or ClipboardService()
         self._session_manager = session_manager or SessionManager()
         self._default_mode = default_mode
-        self._target_language = target_language
+        self._preferred_language = target_language.strip() or DEFAULT_TARGET_LANGUAGE
+        self._target_language = self._preferred_language
         self._generation_lock = threading.Lock()
         self._active_request = False
 
@@ -51,6 +54,10 @@ class AppController(QObject):
     @property
     def target_language(self) -> str:
         return self._target_language
+
+    @property
+    def preferred_language(self) -> str:
+        return self._preferred_language
 
     @property
     def session_manager(self) -> SessionManager:
@@ -74,8 +81,18 @@ class AppController(QObject):
 
     def set_target_language(self, language: str) -> None:
         cleaned = language.strip() or DEFAULT_TARGET_LANGUAGE
+        self._preferred_language = cleaned
         self._target_language = cleaned
-        self.status_changed.emit(f"Target language set to {cleaned}")
+        self.preferred_language_changed.emit(cleaned)
+        self.status_changed.emit(f"Language set to {cleaned}")
+        self.current_language_changed.emit(cleaned)
+
+    def toggle_target_language(self) -> None:
+        current_language = self._target_language.strip().lower()
+        next_language = "English" if current_language != "english" else self._preferred_language
+        self._target_language = next_language
+        self.status_changed.emit(f"Language switched to {next_language}")
+        self.current_language_changed.emit(next_language)
 
     def create_session(self, title: str | None = None) -> ConversationSession:
         session = self._session_manager.create_session(title)

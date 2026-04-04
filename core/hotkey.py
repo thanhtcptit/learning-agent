@@ -20,6 +20,7 @@ _MOD_SHIFT = 0x0004
 _MOD_WIN = 0x0008
 
 EXIT_HOTKEY_ACTION = "exit"
+TOGGLE_LANGUAGE_HOTKEY_ACTION = "toggle_language"
 
 _MODIFIER_TOKENS = {
     "<alt>": _MOD_ALT,
@@ -239,9 +240,10 @@ class GlobalHotkeyListener(QObject):
         self._hotkey_map = dict(
             hotkey_map
             or {
-                "<alt>+e": PromptMode.SIMPLE,
-                "<alt>+d": PromptMode.DETAILED,
-                "<alt>+t": PromptMode.TRANSLATE,
+                "<alt>+d": PromptMode.DEFINITION,
+                "<alt>+e": PromptMode.EXPLAIN,
+                "<alt>+s": PromptMode.SUMMARY,
+                "<alt>+l": TOGGLE_LANGUAGE_HOTKEY_ACTION,
                 "<alt>+x": EXIT_HOTKEY_ACTION,
             }
         )
