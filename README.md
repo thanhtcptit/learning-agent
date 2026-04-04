@@ -150,6 +150,8 @@ python main.py
   * `Alt + E` → simple explanation
   * `Alt + D` → deep explanation
   * `Alt + T` → translation
+  * `Alt + X` → exit the program
+  * `Esc` → minimize the chat window to tray
 * Check chat window output
 * Press the settings icon to open the popup and disable hotkeys if needed
 

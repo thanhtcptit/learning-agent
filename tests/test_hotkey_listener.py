@@ -4,7 +4,7 @@ import core.hotkey as hotkey_module
 
 from prompts.templates import PromptMode
 
-from core.hotkey import GlobalHotkeyListener
+from core.hotkey import EXIT_HOTKEY_ACTION, GlobalHotkeyListener
 
 
 def test_windows_hotkey_backend_initializes_message_queue_before_registration(monkeypatch) -> None:
@@ -68,6 +68,9 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
             self.stop_calls += 1
             events.append("stop")
 
+        def fire(self, action) -> None:
+            self.trigger(action)
+
     backend_holder: dict[str, FakeBackend] = {}
 
     def fake_backend_factory(hotkey_map, trigger):
@@ -90,7 +93,9 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
 
     backend = backend_holder["backend"]
     assert backend.start_calls == 1
+    assert backend.hotkey_map["<alt>+x"] == EXIT_HOTKEY_ACTION
     backend.trigger(PromptMode.SIMPLE)
+    backend.fire(EXIT_HOTKEY_ACTION)
 
     listener.stop()
     assert listener.is_running is False
@@ -98,5 +103,5 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
     assert backend.stop_calls == 1
 
     assert events == ["start", "stop"]
-    assert triggered == [PromptMode.SIMPLE]
+    assert triggered == [PromptMode.SIMPLE, EXIT_HOTKEY_ACTION]
     assert statuses == ["Hotkeys active", "Hotkeys stopped"]

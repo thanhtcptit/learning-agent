@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover - optional during bootstrap
         return False
 
 from core.config import DEFAULT_PROVIDER_CONFIG_PATH, build_provider, load_provider_config
-from core.hotkey import GlobalHotkeyListener
+from core.hotkey import EXIT_HOTKEY_ACTION, GlobalHotkeyListener
 from core.orchestrator import AppController
 from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode
 from session.manager import SessionManager
@@ -63,10 +63,19 @@ def main() -> int:
     )
 
     hotkey_listener = GlobalHotkeyListener()
-    hotkey_listener.hotkey_triggered.connect(controller.handle_hotkey)
-    hotkey_listener.status_changed.connect(controller.status_changed.emit)
 
     window = MainWindow(controller, hotkey_listener)
+
+    def handle_hotkey(action: object) -> None:
+        if action == EXIT_HOTKEY_ACTION:
+            window.request_exit()
+            return
+
+        if isinstance(action, PromptMode):
+            controller.handle_hotkey(action)
+
+    hotkey_listener.hotkey_triggered.connect(handle_hotkey)
+    hotkey_listener.status_changed.connect(controller.status_changed.emit)
     window.show()
 
     try:

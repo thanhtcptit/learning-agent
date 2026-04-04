@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from core.hotkey import GlobalHotkeyListener
-from PySide6.QtGui import QCursor, QGuiApplication
+from PySide6.QtGui import QCloseEvent, QCursor, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QPushButton,
+    QStyle,
+    QSystemTrayIcon,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from core.hotkey import GlobalHotkeyListener
 from core.orchestrator import AppController
 from session.manager import ConversationMessage, ConversationSession
 from ui.chat_widget import ChatTranscript
@@ -50,7 +54,11 @@ class MainWindow(QMainWindow):
         self._controller = controller
         self._hotkey_listener = hotkey_listener
         self._hotkey_pending = False
+        self._allow_close = False
+        self._tray_icon: QSystemTrayIcon | None = None
+        self._escape_shortcut: QShortcut | None = None
         self._build_ui()
+        self._create_tray_icon()
         self._connect_signals()
         self._apply_initial_state()
 
@@ -185,9 +193,70 @@ class MainWindow(QMainWindow):
         self._controller.busy_changed.connect(self._set_busy)
         self._hotkey_listener.hotkey_triggered.connect(self._queue_hotkey_presentation)
 
+        self._escape_shortcut = QShortcut(QKeySequence("Esc"), self)
+        self._escape_shortcut.activated.connect(self.request_minimize_to_tray)
+
         self.settings_button.clicked.connect(self._toggle_settings_popup)
         self.send_button.clicked.connect(self._on_send_clicked)
         self.input_box.submitted.connect(self._on_send_text)
+
+    def _create_tray_icon(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        if QApplication.instance() is None:
+            return
+
+        tray_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        self.setWindowIcon(tray_icon)
+
+        system_tray = QSystemTrayIcon(tray_icon, self)
+        system_tray.setToolTip("AI Learning Assistant")
+
+        tray_menu = QMenu(self)
+        show_action = tray_menu.addAction("Show")
+        show_action.triggered.connect(self._restore_from_tray)
+
+        quit_action = tray_menu.addAction("Exit")
+        quit_action.triggered.connect(self.request_exit)
+
+        system_tray.setContextMenu(tray_menu)
+        system_tray.activated.connect(self._on_tray_activated)
+        system_tray.show()
+
+        self._tray_icon = system_tray
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self._restore_from_tray()
+
+    def _restore_from_tray(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        if not self.isVisible():
+            self.show()
+
+        self.raise_()
+        self.activateWindow()
+
+    def request_minimize_to_tray(self) -> None:
+        if self._tray_icon is not None:
+            self.hide()
+            return
+
+        self.showMinimized()
+
+    def request_exit(self) -> None:
+        self._allow_close = True
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
+            return
+
+        self.close()
 
     def _apply_initial_state(self) -> None:
         self._load_session(self._controller.current_session)
@@ -201,7 +270,8 @@ class MainWindow(QMainWindow):
 
     def _queue_hotkey_presentation(self, _mode: object | None = None) -> None:
         self._hotkey_pending = True
-        self._show_for_hotkey()
+        if self.isVisible():
+            self._show_for_hotkey()
 
     def _maybe_present_for_hotkey(self, message: object) -> None:
         if not self._hotkey_pending:
@@ -234,6 +304,9 @@ class MainWindow(QMainWindow):
         self.raise_()
 
     def _focus_for_hotkey(self) -> None:
+        if not self.isVisible():
+            self._show_for_hotkey()
+
         self.activateWindow()
         self.input_box.setFocus(Qt.FocusReason.ShortcutFocusReason)
 
@@ -249,6 +322,14 @@ class MainWindow(QMainWindow):
             return
         self._controller.submit_text(cleaned)
         self.input_box.clear()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._tray_icon is not None and not self._allow_close:
+            event.ignore()
+            self.request_minimize_to_tray()
+            return
+
+        event.accept()
 
     def _set_busy(self, busy: bool) -> None:
         self.send_button.setEnabled(not busy)

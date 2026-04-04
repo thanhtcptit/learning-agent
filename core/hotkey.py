@@ -4,7 +4,7 @@ import ctypes
 import os
 import threading
 from ctypes import wintypes
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from PySide6.QtCore import QObject, Signal
 
@@ -18,6 +18,8 @@ _MOD_ALT = 0x0001
 _MOD_CONTROL = 0x0002
 _MOD_SHIFT = 0x0004
 _MOD_WIN = 0x0008
+
+EXIT_HOTKEY_ACTION = "exit"
 
 _MODIFIER_TOKENS = {
     "<alt>": _MOD_ALT,
@@ -66,7 +68,7 @@ class _HotkeyBackend:
 
 
 class _PynputHotkeyBackend(_HotkeyBackend):
-    def __init__(self, hotkey_map: Mapping[str, PromptMode], trigger) -> None:
+    def __init__(self, hotkey_map: Mapping[str, object], trigger: Callable[[object], None]) -> None:
         self._hotkey_map = dict(hotkey_map)
         self._trigger = trigger
         self._listener: Any | None = None
@@ -87,15 +89,15 @@ class _PynputHotkeyBackend(_HotkeyBackend):
         if listener is not None:
             listener.stop()
 
-    def _make_callback(self, mode: PromptMode):
+    def _make_callback(self, action: object):
         def callback() -> None:
-            self._trigger(mode)
+            self._trigger(action)
 
         return callback
 
 
 class _WindowsHotkeyBackend(_HotkeyBackend):
-    def __init__(self, hotkey_map: Mapping[str, PromptMode], trigger) -> None:
+    def __init__(self, hotkey_map: Mapping[str, object], trigger: Callable[[object], None]) -> None:
         self._hotkey_map = dict(hotkey_map)
         self._trigger = trigger
         self._thread: threading.Thread | None = None
@@ -103,7 +105,7 @@ class _WindowsHotkeyBackend(_HotkeyBackend):
         self._stop_event = threading.Event()
         self._started_event = threading.Event()
         self._error: Exception | None = None
-        self._id_to_mode: dict[int, PromptMode] = {}
+        self._id_to_action: dict[int, object] = {}
 
     def start(self) -> None:
         if self._thread is not None:
@@ -112,7 +114,7 @@ class _WindowsHotkeyBackend(_HotkeyBackend):
         self._stop_event.clear()
         self._started_event.clear()
         self._error = None
-        self._id_to_mode.clear()
+        self._id_to_action.clear()
 
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -151,11 +153,11 @@ class _WindowsHotkeyBackend(_HotkeyBackend):
         user32.PeekMessageW(ctypes.byref(message), None, 0, 0, _PM_NOREMOVE)
 
         try:
-            for hotkey_id, (combo, mode) in enumerate(self._hotkey_map.items(), start=1):
+            for hotkey_id, (combo, action) in enumerate(self._hotkey_map.items(), start=1):
                 modifiers, virtual_key = _parse_hotkey(combo)
                 if not user32.RegisterHotKey(None, hotkey_id, modifiers, virtual_key):
                     raise OSError(f"Failed to register hotkey {combo!r}: {ctypes.WinError()}")
-                self._id_to_mode[hotkey_id] = mode
+                self._id_to_action[hotkey_id] = action
 
             self._started_event.set()
 
@@ -166,20 +168,20 @@ class _WindowsHotkeyBackend(_HotkeyBackend):
                 if result == 0:
                     break
                 if message.message == _WM_HOTKEY:
-                    mode = self._id_to_mode.get(int(message.wParam))
-                    if mode is not None:
-                        self._trigger(mode)
+                    action = self._id_to_action.get(int(message.wParam))
+                    if action is not None:
+                        self._trigger(action)
         except Exception as exc:  # noqa: BLE001 - start() surfaces startup failures to the UI
             self._error = exc
             self._started_event.set()
         finally:
-            for hotkey_id in list(self._id_to_mode):
+            for hotkey_id in list(self._id_to_action):
                 user32.UnregisterHotKey(None, hotkey_id)
-            self._id_to_mode.clear()
+            self._id_to_action.clear()
             self._thread_id = None
 
 
-def _create_hotkey_backend(hotkey_map: Mapping[str, PromptMode], trigger) -> _HotkeyBackend:
+def _create_hotkey_backend(hotkey_map: Mapping[str, object], trigger: Callable[[object], None]) -> _HotkeyBackend:
     if os.name == "nt":
         return _WindowsHotkeyBackend(hotkey_map, trigger)
     return _PynputHotkeyBackend(hotkey_map, trigger)
@@ -232,7 +234,7 @@ class GlobalHotkeyListener(QObject):
     hotkey_triggered = Signal(object)
     status_changed = Signal(str)
 
-    def __init__(self, hotkey_map: Mapping[str, PromptMode] | None = None) -> None:
+    def __init__(self, hotkey_map: Mapping[str, object] | None = None) -> None:
         super().__init__()
         self._hotkey_map = dict(
             hotkey_map
@@ -240,6 +242,7 @@ class GlobalHotkeyListener(QObject):
                 "<alt>+e": PromptMode.SIMPLE,
                 "<alt>+d": PromptMode.DETAILED,
                 "<alt>+t": PromptMode.TRANSLATE,
+                "<alt>+x": EXIT_HOTKEY_ACTION,
             }
         )
         self._backend: _HotkeyBackend | None = None
