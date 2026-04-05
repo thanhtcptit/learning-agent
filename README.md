@@ -154,6 +154,7 @@ python main.py
   * `Alt + L` → toggle between the chosen language and English
   * `Alt + X` → exit the program
   * `Esc` → minimize the chat window to tray
+  * `Stop` button → cancel the current request
 * Check chat window output
 * Press the settings icon to open the popup and disable hotkeys if needed
 

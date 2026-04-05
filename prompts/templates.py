@@ -48,3 +48,15 @@ def build_messages(text: str, mode: PromptMode, target_language: str = DEFAULT_T
         LLMMessage(role="system", content=system_prompt),
         LLMMessage(role="user", content=user_prompt),
     ]
+
+
+def build_chat_messages(text: str, target_language: str = DEFAULT_TARGET_LANGUAGE) -> list[LLMMessage]:
+    system_prompt = (
+        "You are a helpful conversational assistant. Continue the conversation naturally and answer in "
+        f"{target_language}. Be concise when possible and use the prior conversation as context."
+    )
+
+    return [
+        LLMMessage(role="system", content=system_prompt),
+        LLMMessage(role="user", content=text),
+    ]

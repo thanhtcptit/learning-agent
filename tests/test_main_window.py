@@ -513,6 +513,39 @@ def test_main_window_updates_language_indicator() -> None:
     assert window.language_indicator.text == "Language: English"
 
 
+def test_main_window_sends_manual_input_using_chat_mode() -> None:
+    class DummyInputBox:
+        def __init__(self) -> None:
+            self.cleared = False
+
+        def clear(self) -> None:
+            self.cleared = True
+
+    class DummyController:
+        def __init__(self) -> None:
+            self.submit_chat_text_calls: list[str] = []
+            self.submit_text_calls: list[str] = []
+
+        def submit_chat_text(self, text: str) -> None:
+            self.submit_chat_text_calls.append(text)
+
+        def submit_text(self, text: str) -> None:
+            self.submit_text_calls.append(text)
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._controller = DummyController()
+            self.input_box = DummyInputBox()
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow._on_send_text(window, "  Hello there  ")
+
+    assert window._controller.submit_chat_text_calls == ["Hello there"]
+    assert window._controller.submit_text_calls == []
+    assert window.input_box.cleared is True
+
+
 def test_main_window_defers_initial_scroll_until_first_show(monkeypatch) -> None:
     class DummyTranscript:
         def __init__(self) -> None:
@@ -590,3 +623,39 @@ def test_main_window_request_minimize_to_tray_falls_back_to_taskbar_minimize() -
 
     assert window.hide_calls == 0
     assert window.show_minimized_calls == 1
+
+
+def test_main_window_updates_stop_button_with_busy_state() -> None:
+    class DummyButton:
+        def __init__(self) -> None:
+            self.enabled_values: list[bool] = []
+            self.text_values: list[str] = []
+
+        def setEnabled(self, value: bool) -> None:
+            self.enabled_values.append(value)
+
+        def setText(self, value: str) -> None:
+            self.text_values.append(value)
+
+    class DummyInput:
+        def __init__(self) -> None:
+            self.enabled_values: list[bool] = []
+
+        def setEnabled(self, value: bool) -> None:
+            self.enabled_values.append(value)
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.send_button = DummyButton()
+            self.stop_button = DummyButton()
+            self.input_box = DummyInput()
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow._set_busy(window, True)
+    main_window_module.MainWindow._set_busy(window, False)
+
+    assert window.send_button.enabled_values == [False, True]
+    assert window.send_button.text_values == ["Thinking...", "Send"]
+    assert window.stop_button.enabled_values == [True, False]
+    assert window.input_box.enabled_values == [False, True]

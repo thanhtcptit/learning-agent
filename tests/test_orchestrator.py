@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
 
 from core.orchestrator import AppController
@@ -24,10 +26,33 @@ class FakeProvider:
     def __init__(self) -> None:
         self.requests = []
 
-    def stream_chat(self, messages, *, temperature=None):
+    def stream_chat(self, messages, *, temperature=None, cancel_event=None):
         self.requests.append((list(messages), temperature))
         yield "Hel"
         yield "lo"
+
+
+class CancellableProvider:
+    model = "fake-model"
+
+    def __init__(self) -> None:
+        self.requests = []
+        self.cancel_calls = 0
+        self.started = threading.Event()
+        self.stopped = threading.Event()
+
+    def stream_chat(self, messages, *, temperature=None, cancel_event=None):
+        self.requests.append((list(messages), temperature, cancel_event))
+        self.started.set()
+
+        while cancel_event is not None and not cancel_event.is_set():
+            cancel_event.wait(0.01)
+            yield from ()
+
+        self.stopped.set()
+
+    def cancel_current_request(self) -> None:
+        self.cancel_calls += 1
 
 
 class FakeClipboardService:
@@ -62,6 +87,27 @@ def test_submit_text_appends_user_and_streamed_assistant_message(monkeypatch) ->
     )
     assert provider.requests[0][0][-1].content == "Explain the following text:\n\nExplain vectors"
     assert observed_messages[-1].content == "Hello"
+
+
+def test_submit_chat_text_uses_normal_chat_mode_and_limits_context(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+
+    provider = FakeProvider()
+    controller = AppController(provider)
+
+    for index in range(1, 26):
+        controller.current_session.append_message("user" if index % 2 else "assistant", f"prior-{index}")
+
+    controller.submit_chat_text("What should I do next?", "English")
+
+    request_messages, _temperature = provider.requests[0]
+
+    assert len(request_messages) == 22
+    assert [message.content for message in request_messages[:20]] == [f"prior-{index}" for index in range(6, 26)]
+    assert request_messages[20].role == "system"
+    assert "helpful conversational assistant" in request_messages[20].content.lower()
+    assert request_messages[21].role == "user"
+    assert request_messages[21].content == "What should I do next?"
 
 
 def test_handle_hotkey_captures_clipboard_text(monkeypatch) -> None:
@@ -156,3 +202,54 @@ def test_set_target_language_updates_preferred_and_current_language() -> None:
     assert controller.target_language == "French"
     assert current_languages == ["French"]
     assert preferred_languages == ["French"]
+
+
+def test_stop_current_request_cancels_active_stream() -> None:
+    provider = CancellableProvider()
+    controller = AppController(provider)
+
+    controller.submit_text("Explain vectors", PromptMode.EXPLAIN, "English")
+
+    assert provider.started.wait(timeout=1.0)
+    assert controller.is_busy is True
+
+    controller.stop_current_request()
+
+    assert provider.cancel_calls == 1
+    assert provider.stopped.wait(timeout=1.0)
+
+    deadline = time.monotonic() + 1.0
+    while controller.is_busy and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert controller.is_busy is False
+
+
+def test_stop_current_request_excludes_cancelled_turn_from_followup_context() -> None:
+    provider = CancellableProvider()
+    controller = AppController(provider)
+
+    controller.submit_chat_text("First question", "English")
+
+    assert provider.started.wait(timeout=1.0)
+
+    controller.stop_current_request()
+
+    assert provider.stopped.wait(timeout=1.0)
+
+    deadline = time.monotonic() + 1.0
+    while controller.is_busy and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    assert controller.is_busy is False
+
+    followup_provider = FakeProvider()
+    followup_controller = AppController(followup_provider, session_manager=controller.session_manager)
+    followup_controller.submit_chat_text("Second question", "English")
+
+    request_messages, _temperature = followup_provider.requests[0]
+
+    assert len(request_messages) == 2
+    assert request_messages[0].role == "system"
+    assert request_messages[1].role == "user"
+    assert request_messages[1].content == "Second question"

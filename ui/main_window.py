@@ -82,6 +82,12 @@ class MainWindow(QMainWindow):
         self.settings_button.setToolTip("Settings")
         self.settings_button.setAutoRaise(True)
 
+        self.stop_button = QPushButton("Stop")
+        self.stop_button.setObjectName("StopButton")
+        self.stop_button.setToolTip("Stop the current request")
+        self.stop_button.setFixedWidth(72)
+        self.stop_button.setEnabled(False)
+
         self.settings_popup = SettingsPopup(self._controller, self._hotkey_listener, self)
 
         header_frame = QFrame()
@@ -112,6 +118,7 @@ class MainWindow(QMainWindow):
         composer_layout.setSpacing(10)
         composer_layout.addWidget(self.input_box, 1)
         composer_layout.addWidget(self.send_button)
+        composer_layout.addWidget(self.stop_button)
         content_layout.addLayout(composer_layout)
 
         root = QWidget()
@@ -169,6 +176,14 @@ class MainWindow(QMainWindow):
                 background: #93c5fd;
                 color: #eff6ff;
             }
+            QPushButton#StopButton {
+                background: #dc2626;
+                color: white;
+            }
+            QPushButton#StopButton:disabled {
+                background: #fca5a5;
+                color: #fff5f5;
+            }
             QToolButton#SettingsButton {
                 background: #f1f5f9;
                 color: #0f172a;
@@ -214,6 +229,7 @@ class MainWindow(QMainWindow):
         self._escape_shortcut.activated.connect(self.request_minimize_to_tray)
 
         self.settings_button.clicked.connect(self._toggle_settings_popup)
+        self.stop_button.clicked.connect(self._request_stop_current_request)
         self.send_button.clicked.connect(self._on_send_clicked)
         self.input_box.submitted.connect(self._on_send_text)
 
@@ -379,11 +395,20 @@ class MainWindow(QMainWindow):
     def _on_send_clicked(self, _checked: bool = False) -> None:
         self._on_send_text(self.input_box.text())
 
+    def _request_stop_current_request(self) -> None:
+        stop_current_request = getattr(self._controller, "stop_current_request", None)
+        if callable(stop_current_request):
+            stop_current_request()
+
     def _on_send_text(self, text: str) -> None:
         cleaned = text.strip()
         if not cleaned:
             return
-        self._controller.submit_text(cleaned)
+        submit_chat_text = getattr(self._controller, "submit_chat_text", None)
+        if callable(submit_chat_text):
+            submit_chat_text(cleaned)
+        else:
+            self._controller.submit_text(cleaned)
         self.input_box.clear()
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -402,4 +427,5 @@ class MainWindow(QMainWindow):
     def _set_busy(self, busy: bool) -> None:
         self.send_button.setEnabled(not busy)
         self.send_button.setText("Thinking..." if busy else "Send")
+        self.stop_button.setEnabled(busy)
         self.input_box.setEnabled(not busy)

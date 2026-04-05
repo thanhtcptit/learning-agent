@@ -48,6 +48,7 @@ class ConversationMessage:
     role: str = "user"
     content: str = ""
     mode: str | None = None
+    include_in_context: bool = True
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)
 
@@ -57,6 +58,7 @@ class ConversationMessage:
             "role": self.role,
             "content": self.content,
             "mode": self.mode,
+            "include_in_context": self.include_in_context,
             "created_at": _serialize_datetime(self.created_at),
             "updated_at": _serialize_datetime(self.updated_at),
         }
@@ -68,6 +70,7 @@ class ConversationMessage:
             role=str(payload.get("role") or "user"),
             content=str(payload.get("content") or ""),
             mode=str(payload.get("mode")) if payload.get("mode") is not None else None,
+            include_in_context=bool(payload.get("include_in_context", True)),
             created_at=_parse_datetime(payload.get("created_at") or _utcnow().isoformat()),
             updated_at=_parse_datetime(payload.get("updated_at") or _utcnow().isoformat()),
         )
@@ -116,6 +119,7 @@ class ConversationSession:
         content: str,
         *,
         mode: str | None = None,
+        include_in_context: bool = True,
         message_id: str | None = None,
     ) -> ConversationMessage:
         message = ConversationMessage(
@@ -123,6 +127,7 @@ class ConversationSession:
             role=role,
             content=content,
             mode=mode,
+            include_in_context=include_in_context,
         )
         self.messages.append(message)
         self.updated_at = _utcnow()
@@ -131,6 +136,15 @@ class ConversationSession:
             self.title = _summarize_title(content)
 
         return message
+
+    def set_message_include_in_context(self, message_id: str, include_in_context: bool) -> ConversationMessage:
+        for message in self.messages:
+            if message.id == message_id:
+                message.include_in_context = include_in_context
+                message.updated_at = _utcnow()
+                self.updated_at = message.updated_at
+                return message
+        raise KeyError(f"Unknown message id: {message_id}")
 
     def update_message(self, message_id: str, content: str) -> ConversationMessage:
         for message in self.messages:
@@ -141,15 +155,26 @@ class ConversationSession:
                 return message
         raise KeyError(f"Unknown message id: {message_id}")
 
-    def llm_history(self, *, exclude_last: int = 0) -> list[LLMMessage]:
+    def llm_history(self, *, exclude_last: int = 0, limit: int | None = None) -> list[LLMMessage]:
         end_index = len(self.messages) - max(exclude_last, 0)
         if end_index < 0:
             end_index = 0
 
+        messages_to_process = [
+            message
+            for message in self.messages[:end_index]
+            if message.include_in_context and message.content.strip()
+        ]
+
+        if limit is not None:
+            if limit <= 0:
+                messages_to_process = []
+            else:
+                messages_to_process = messages_to_process[-limit:]
+
         return [
             LLMMessage(role=message.role, content=message.content)
-            for message in self.messages[:end_index]
-            if message.content.strip()
+            for message in messages_to_process
         ]
 
 
@@ -207,9 +232,30 @@ class SessionManager:
         with self._lock:
             return list(self._sessions)
 
-    def append_message(self, role: str, content: str, *, mode: str | None = None) -> ConversationMessage:
+    def append_message(
+        self,
+        role: str,
+        content: str,
+        *,
+        mode: str | None = None,
+        include_in_context: bool = True,
+    ) -> ConversationMessage:
         with self._lock:
-            return self.current_session().append_message(role, content, mode=mode)
+            return self.current_session().append_message(
+                role,
+                content,
+                mode=mode,
+                include_in_context=include_in_context,
+            )
+
+    def set_message_include_in_context(self, message_id: str, include_in_context: bool) -> ConversationMessage:
+        with self._lock:
+            for session in self._sessions:
+                try:
+                    return session.set_message_include_in_context(message_id, include_in_context)
+                except KeyError:
+                    continue
+        raise KeyError(f"Unknown message id: {message_id}")
 
     def update_message(self, message_id: str, content: str) -> ConversationMessage:
         with self._lock:

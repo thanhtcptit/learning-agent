@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Event
 from typing import Iterator, Protocol, Sequence
 
 
@@ -13,5 +14,11 @@ class LLMMessage:
 class LLMProvider(Protocol):
     model: str
 
-    def stream_chat(self, messages: Sequence[LLMMessage], *, temperature: float | None = None) -> Iterator[str]:
+    def stream_chat(
+        self,
+        messages: Sequence[LLMMessage],
+        *,
+        temperature: float | None = None,
+        cancel_event: Event | None = None,
+    ) -> Iterator[str]:
         """Yield incremental content chunks for a chat completion."""

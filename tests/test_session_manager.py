@@ -45,12 +45,33 @@ def test_llm_history_skips_empty_content_and_excludes_recent_messages() -> None:
     assert [message.content for message in history] == ["alpha"]
 
 
+def test_llm_history_skips_messages_excluded_from_context() -> None:
+    session = SessionManager().current_session()
+    session.append_message("user", "keep me")
+    session.append_message("assistant", "skip me", include_in_context=False)
+    session.append_message("assistant", "keep me too")
+
+    history = session.llm_history()
+
+    assert [message.content for message in history] == ["keep me", "keep me too"]
+
+
+def test_llm_history_limits_to_latest_messages() -> None:
+    session = SessionManager().current_session()
+    for index in range(1, 7):
+        session.append_message("user" if index % 2 else "assistant", f"message-{index}")
+
+    history = session.llm_history(limit=3)
+
+    assert [message.content for message in history] == ["message-4", "message-5", "message-6"]
+
+
 def test_session_manager_round_trips_through_json_file(tmp_path) -> None:
     manager = SessionManager()
     first_session = manager.current_session()
     manager.append_message("user", "persist me", mode=PromptMode.EXPLAIN.value)
     second_session = manager.create_session("Second")
-    manager.append_message("assistant", "reply")
+    manager.append_message("assistant", "reply", include_in_context=False)
 
     state_path = tmp_path / "sessions.json"
     manager.save_to_file(state_path)
@@ -61,6 +82,7 @@ def test_session_manager_round_trips_through_json_file(tmp_path) -> None:
     assert restored.current_session().id == second_session.id
     assert restored.list_sessions()[0].messages[0].content == "persist me"
     assert restored.list_sessions()[1].messages[0].content == "reply"
+    assert restored.list_sessions()[1].messages[0].include_in_context is False
 
 
 def test_session_manager_deletes_current_session_and_keeps_valid_selection() -> None:
