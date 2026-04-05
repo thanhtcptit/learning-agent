@@ -10,7 +10,7 @@ def test_discover_llm_catalog_groups_families_models_and_providers(tmp_path) -> 
     qwen_dir.mkdir()
     (qwen_dir / "qwen3.6-plus.json").write_text(
         json.dumps([
-            {"provider": "openrouter", "model": "qwen/qwen3.6-plus-preview:free"},
+            {"provider": "openrouter", "model": "qwen/qwen3.6-plus:free"},
         ]),
         encoding="utf-8",
     )
@@ -39,7 +39,7 @@ def test_load_provider_config_infers_family_and_name(tmp_path) -> None:
     qwen_dir.mkdir()
     config_path = qwen_dir / "qwen3.6-plus.json"
     config_path.write_text(
-        json.dumps({"provider": "openrouter", "model": "qwen/qwen3.6-plus-preview:free"}),
+        json.dumps({"provider": "openrouter", "model": "qwen/qwen3.6-plus:free"}),
         encoding="utf-8",
     )
 

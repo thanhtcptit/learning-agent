@@ -278,6 +278,13 @@ class MainWindow(QMainWindow):
 
         self.showMinimized()
 
+    def toggle_window_visibility(self) -> None:
+        if self.isMinimized() or self._tray_hidden or not self.isVisible():
+            self._restore_from_tray()
+            return
+
+        self.request_minimize_to_tray()
+
     def request_exit(self) -> None:
         self._allow_close = True
         app = QApplication.instance()

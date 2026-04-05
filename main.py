@@ -16,7 +16,12 @@ except ImportError:  # pragma: no cover - optional during bootstrap
 
 from core.app_settings import AppSettings, load_app_settings, save_app_settings
 from core.config import DEFAULT_PROVIDER_CONFIG_PATH, build_provider, load_provider_config
-from core.hotkey import EXIT_HOTKEY_ACTION, TOGGLE_LANGUAGE_HOTKEY_ACTION, GlobalHotkeyListener
+from core.hotkey import (
+    EXIT_HOTKEY_ACTION,
+    TOGGLE_LANGUAGE_HOTKEY_ACTION,
+    TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
+    GlobalHotkeyListener,
+)
 from core.orchestrator import AppController
 from prompts.templates import PromptMode
 from session.manager import SessionManager
@@ -37,6 +42,10 @@ class HotkeyActionRouter(QObject):
 
         if action == TOGGLE_LANGUAGE_HOTKEY_ACTION:
             self._controller.toggle_target_language()
+            return
+
+        if action == TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION:
+            self._window.toggle_window_visibility()
             return
 
         if isinstance(action, PromptMode):

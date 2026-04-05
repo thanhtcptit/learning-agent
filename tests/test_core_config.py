@@ -13,7 +13,7 @@ def test_load_provider_config_reads_first_entry(tmp_path) -> None:
         json.dumps([
             {
                 "provider": "openrouter",
-                "model": "qwen/qwen3.6-plus-preview:free",
+                "model": "qwen/qwen3.6-plus:free",
                 "base_url": "https://example.com/api/v1",
                 "temperature": 0.75,
             }
@@ -24,7 +24,7 @@ def test_load_provider_config_reads_first_entry(tmp_path) -> None:
     config = load_provider_config(config_path)
 
     assert config.provider == "openrouter"
-    assert config.model == "qwen/qwen3.6-plus-preview:free"
+    assert config.model == "qwen/qwen3.6-plus:free"
     assert config.base_url == "https://example.com/api/v1"
     assert config.temperature == pytest.approx(0.75)
 

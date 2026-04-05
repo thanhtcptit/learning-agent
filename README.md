@@ -150,6 +150,7 @@ python main.py
   * `Alt + D` → definition mode
   * `Alt + E` → explain mode
   * `Alt + S` → summary mode
+  * `Alt + H` → hide or show the chat window
   * `Alt + L` → toggle between the chosen language and English
   * `Alt + X` → exit the program
   * `Esc` → minimize the chat window to tray

@@ -55,6 +55,7 @@ class ChatTranscript(QTextBrowser):
             html = self._wrap_document(
                 "<div style='opacity: 0.75; font-size: 15px; color: #64748b;'>"
                 "No conversation yet. Highlight text in another app and use Alt+D, Alt+E, or Alt+S. "
+                "Press Alt+H to hide or show the window. "
                 "Press Alt+L to switch between your chosen language and English."
                 "</div>"
             )

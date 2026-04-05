@@ -418,6 +418,64 @@ def test_main_window_repositions_when_restoring_from_tray(monkeypatch) -> None:
     assert window.transcript.scroll_calls == 1
 
 
+def test_main_window_toggle_visibility_hides_when_visible() -> None:
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.minimized = False
+            self.visible = True
+            self._tray_hidden = False
+            self.hide_calls = 0
+            self.restore_calls = 0
+
+        def isMinimized(self) -> bool:
+            return self.minimized
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def request_minimize_to_tray(self) -> None:
+            self.hide_calls += 1
+
+        def _restore_from_tray(self) -> None:
+            self.restore_calls += 1
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow.toggle_window_visibility(window)
+
+    assert window.hide_calls == 1
+    assert window.restore_calls == 0
+
+
+def test_main_window_toggle_visibility_restores_when_hidden() -> None:
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.minimized = False
+            self.visible = False
+            self._tray_hidden = True
+            self.hide_calls = 0
+            self.restore_calls = 0
+
+        def isMinimized(self) -> bool:
+            return self.minimized
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def request_minimize_to_tray(self) -> None:
+            self.hide_calls += 1
+
+        def _restore_from_tray(self) -> None:
+            self.restore_calls += 1
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow.toggle_window_visibility(window)
+
+    assert window.hide_calls == 0
+    assert window.restore_calls == 1
+
+
 def test_main_window_marks_next_mode_for_new_session_when_minimized() -> None:
     class DummyWindow:
         def __init__(self) -> None:

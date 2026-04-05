@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from core.hotkey import TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION
 from main import HotkeyActionRouter
 from prompts.templates import PromptMode
 
@@ -10,6 +11,7 @@ class FakeController:
         self.create_session_calls = 0
         self.handle_hotkey_calls: list[PromptMode] = []
         self.toggle_language_calls = 0
+        self.toggle_window_visibility_calls = 0
 
     def create_session(self) -> None:
         self.create_session_calls += 1
@@ -20,11 +22,15 @@ class FakeController:
     def toggle_target_language(self) -> None:
         self.toggle_language_calls += 1
 
+    def toggle_window_visibility(self) -> None:
+        self.toggle_window_visibility_calls += 1
+
 
 class FakeWindow:
     def __init__(self, pending_new_session: bool = False) -> None:
         self.pending_new_session = pending_new_session
         self.request_exit_calls = 0
+        self.toggle_window_visibility_calls = 0
 
     def consume_new_session_request(self) -> bool:
         pending = self.pending_new_session
@@ -33,6 +39,9 @@ class FakeWindow:
 
     def request_exit(self) -> None:
         self.request_exit_calls += 1
+
+    def toggle_window_visibility(self) -> None:
+        self.toggle_window_visibility_calls += 1
 
 
 def test_hotkey_router_creates_new_session_after_minimize() -> None:
@@ -68,3 +77,15 @@ def test_hotkey_router_leaves_pending_session_when_busy() -> None:
     assert controller.create_session_calls == 0
     assert controller.handle_hotkey_calls == [PromptMode.SUMMARY]
     assert window.pending_new_session is True
+
+
+def test_hotkey_router_toggles_window_visibility() -> None:
+    controller = FakeController()
+    window = FakeWindow()
+    router = HotkeyActionRouter(controller, window)
+
+    router.handle_action(TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION)
+
+    assert controller.create_session_calls == 0
+    assert controller.handle_hotkey_calls == []
+    assert window.toggle_window_visibility_calls == 1

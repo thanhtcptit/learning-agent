@@ -12,7 +12,7 @@ from llm.openrouter_provider import OpenRouterProvider
 def test_openrouter_provider_from_config_reads_environment(monkeypatch) -> None:
     config = ProviderConfig(
         provider="openrouter",
-        model="qwen/qwen3.6-plus-preview:free",
+        model="qwen/qwen3.6-plus:free",
         api_key_env="TEST_OPENROUTER_API_KEY",
         site_url_env="TEST_OPENROUTER_SITE_URL",
         app_name_env="TEST_OPENROUTER_APP_NAME",
@@ -23,7 +23,7 @@ def test_openrouter_provider_from_config_reads_environment(monkeypatch) -> None:
 
     provider = OpenRouterProvider.from_config(config)
 
-    assert provider.model == "qwen/qwen3.6-plus-preview:free"
+    assert provider.model == "qwen/qwen3.6-plus:free"
 
 
 def test_openrouter_provider_stream_chat_parses_sse_chunks(monkeypatch) -> None:
@@ -77,7 +77,7 @@ def test_openrouter_provider_stream_chat_parses_sse_chunks(monkeypatch) -> None:
     monkeypatch.setattr("llm.openrouter_provider.httpx.Client", FakeClient)
 
     provider = OpenRouterProvider(
-        model="qwen/qwen3.6-plus-preview:free",
+        model="qwen/qwen3.6-plus:free",
         api_key="secret-key",
         base_url="https://openrouter.ai/api/v1",
         temperature=0.4,
@@ -100,7 +100,7 @@ def test_openrouter_provider_stream_chat_parses_sse_chunks(monkeypatch) -> None:
 def test_openrouter_provider_requires_api_key(monkeypatch) -> None:
     config = ProviderConfig(
         provider="openrouter",
-        model="qwen/qwen3.6-plus-preview:free",
+        model="qwen/qwen3.6-plus:free",
         api_key_env="TEST_OPENROUTER_API_KEY_MISSING",
     )
     monkeypatch.delenv("TEST_OPENROUTER_API_KEY_MISSING", raising=False)

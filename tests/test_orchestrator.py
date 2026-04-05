@@ -105,7 +105,7 @@ def test_delete_session_updates_current_session(monkeypatch) -> None:
 
 
 def test_set_provider_switches_active_config() -> None:
-    initial_config = ProviderConfig(provider="openrouter", model="qwen/qwen3.6-plus-preview:free", family="qwen", name="qwen3.6-plus")
+    initial_config = ProviderConfig(provider="openrouter", model="qwen/qwen3.6-plus:free", family="qwen", name="qwen3.6-plus")
     next_config = ProviderConfig(provider="openai", model="gpt-4.1", family="gpt", name="gpt-4.1")
 
     created_configs = []
