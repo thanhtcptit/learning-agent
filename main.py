@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -23,7 +24,7 @@ from ui.main_window import MainWindow
 
 
 class HotkeyActionRouter(QObject):
-    def __init__(self, controller: AppController, window: MainWindow) -> None:
+    def __init__(self, controller: Any, window: Any) -> None:
         super().__init__()
         self._controller = controller
         self._window = window
@@ -39,6 +40,8 @@ class HotkeyActionRouter(QObject):
             return
 
         if isinstance(action, PromptMode):
+            if not self._controller.is_busy and self._window.consume_new_session_request():
+                self._controller.create_session()
             self._controller.handle_hotkey(action)
 
 

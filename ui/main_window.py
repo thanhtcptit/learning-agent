@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QCursor, QGuiApplication, QKeySequence, QShortcut, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -59,6 +59,7 @@ class MainWindow(QMainWindow):
         self._escape_shortcut: QShortcut | None = None
         self._initial_show_scroll_pending = True
         self._tray_hidden = False
+        self._start_new_session_on_next_mode = False
         self._build_ui()
         self._create_tray_icon()
         self._connect_signals()
@@ -269,6 +270,7 @@ class MainWindow(QMainWindow):
         self._tray_hidden = False
 
     def request_minimize_to_tray(self) -> None:
+        self._start_new_session_on_next_mode = True
         if self._tray_icon is not None:
             self._tray_hidden = True
             self.hide()
@@ -359,6 +361,11 @@ class MainWindow(QMainWindow):
     def _scroll_transcript_to_bottom(self) -> None:
         self.transcript.scroll_to_bottom()
 
+    def consume_new_session_request(self) -> bool:
+        pending = getattr(self, "_start_new_session_on_next_mode", False)
+        self._start_new_session_on_next_mode = False
+        return pending
+
     def _set_current_language(self, language: str) -> None:
         self.language_indicator.setText(f"Language: {language}")
 
@@ -379,6 +386,11 @@ class MainWindow(QMainWindow):
             return
 
         event.accept()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange and self.isMinimized():
+            self._start_new_session_on_next_mode = True
 
     def _set_busy(self, busy: bool) -> None:
         self.send_button.setEnabled(not busy)

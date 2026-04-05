@@ -60,6 +60,10 @@ class AppController(QObject):
         return self._preferred_language
 
     @property
+    def is_busy(self) -> bool:
+        return self._is_busy()
+
+    @property
     def session_manager(self) -> SessionManager:
         return self._session_manager
 

@@ -418,6 +418,24 @@ def test_main_window_repositions_when_restoring_from_tray(monkeypatch) -> None:
     assert window.transcript.scroll_calls == 1
 
 
+def test_main_window_marks_next_mode_for_new_session_when_minimized() -> None:
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._tray_icon = object()
+            self.hide_calls = 0
+
+        def hide(self) -> None:
+            self.hide_calls += 1
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow.request_minimize_to_tray(window)
+
+    assert main_window_module.MainWindow.consume_new_session_request(window) is True
+    assert main_window_module.MainWindow.consume_new_session_request(window) is False
+    assert window.hide_calls == 1
+
+
 def test_main_window_updates_language_indicator() -> None:
     class DummyLabel:
         def __init__(self) -> None:
