@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from core.config import ProviderConfig
 from prompts.templates import DEFAULT_TARGET_LANGUAGE
 
 
@@ -29,19 +30,29 @@ def _coerce_bool(value: Any, default: bool = False) -> bool:
 class AppSettings:
     preferred_language: str = DEFAULT_TARGET_LANGUAGE
     screen_ocr_enabled: bool = False
+    selected_provider_config: ProviderConfig | None = None
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "AppSettings":
         preferred_language = str(payload.get("preferred_language") or DEFAULT_TARGET_LANGUAGE).strip()
+        selected_provider_config_payload = payload.get("selected_provider_config")
+        selected_provider_config = None
+        if isinstance(selected_provider_config_payload, Mapping):
+            try:
+                selected_provider_config = ProviderConfig.from_mapping(selected_provider_config_payload)
+            except Exception:
+                selected_provider_config = None
         return cls(
             preferred_language=preferred_language or DEFAULT_TARGET_LANGUAGE,
             screen_ocr_enabled=_coerce_bool(payload.get("screen_ocr_enabled"), default=False),
+            selected_provider_config=selected_provider_config,
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "preferred_language": self.preferred_language,
             "screen_ocr_enabled": self.screen_ocr_enabled,
+            "selected_provider_config": self.selected_provider_config.to_dict() if self.selected_provider_config is not None else None,
         }
 
 

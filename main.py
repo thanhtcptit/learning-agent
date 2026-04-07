@@ -83,6 +83,13 @@ def _load_app_settings(settings_path: Path) -> AppSettings:
     return AppSettings()
 
 
+def _resolve_startup_provider_config(app_settings: AppSettings):
+    if app_settings.selected_provider_config is not None:
+        return app_settings.selected_provider_config
+
+    return load_provider_config(DEFAULT_PROVIDER_CONFIG_PATH)
+
+
 def main() -> int:
     project_root = Path(__file__).resolve().parent
     load_dotenv(project_root / ".env")
@@ -92,17 +99,18 @@ def main() -> int:
     app.setOrganizationName("learning-agent")
     app.setStyle("Fusion")
 
+    session_state_path = _default_session_state_path()
+    app_settings_path = _default_app_settings_path()
+    app_settings = _load_app_settings(app_settings_path)
+
     try:
-        provider_config = load_provider_config(DEFAULT_PROVIDER_CONFIG_PATH)
+        provider_config = _resolve_startup_provider_config(app_settings)
         provider = build_provider(provider_config)
     except Exception as exc:  # noqa: BLE001 - startup errors should be surfaced clearly
         QMessageBox.critical(None, "Startup failed", str(exc))
         return 1
 
-    session_state_path = _default_session_state_path()
-    app_settings_path = _default_app_settings_path()
     session_manager = _load_session_manager(session_state_path)
-    app_settings = _load_app_settings(app_settings_path)
 
     controller = AppController(
         provider,
@@ -131,6 +139,7 @@ def main() -> int:
                 AppSettings(
                     preferred_language=controller.preferred_language,
                     screen_ocr_enabled=controller.screen_ocr_enabled,
+                    selected_provider_config=controller.provider_config,
                 ),
             )
         except Exception as exc:  # noqa: BLE001 - settings persistence should not block exit
@@ -138,6 +147,7 @@ def main() -> int:
 
     controller.preferred_language_changed.connect(lambda _language: save_settings())
     controller.screen_ocr_enabled_changed.connect(lambda _enabled: save_settings())
+    controller.provider_config_changed.connect(lambda _config: save_settings())
 
     try:
         hotkey_listener.start()

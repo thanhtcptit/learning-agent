@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 
 DEFAULT_LLM_API_ROOT = Path(__file__).resolve().parents[1] / "configs" / "llm_api"
@@ -16,6 +16,23 @@ DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 
 def _display_name_from_model(model: str) -> str:
     return model.split(":", 1)[0].strip() or model
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+
+    if value is None:
+        return default
+
+    return bool(value)
 
 
 def _coerce_bool(value: Any, default: bool = False) -> bool:
@@ -61,6 +78,73 @@ class ProviderConfig:
     web_search_allowed_domains: tuple[str, ...] = ()
     max_output_tokens: int | None = None
 
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any], *, family: str = "", name: str = "") -> "ProviderConfig":
+        provider = str(payload.get("provider", "openrouter")).strip() or "openrouter"
+        model = str(payload.get("model", "")).strip()
+        if not model:
+            raise ValueError("Provider config is missing a model name.")
+
+        defaults = _default_provider_metadata(provider)
+        base_url = str(payload.get("base_url", defaults["base_url"])).strip() or defaults["base_url"]
+        temperature = float(payload.get("temperature", 0.2))
+        display_name = str(payload.get("display_name", _display_name_from_model(model))).strip() or _display_name_from_model(model)
+        reasoning_effort = str(payload.get("reasoning_effort") or "").strip() or None
+        web_search_enabled = _coerce_bool(payload.get("web_search_enabled"), default=False)
+        web_search_external_web_access = _coerce_bool(payload.get("web_search_external_web_access"), default=True)
+
+        raw_allowed_domains = payload.get("web_search_allowed_domains", ())
+        if isinstance(raw_allowed_domains, str):
+            allowed_domains = tuple(
+                domain.strip() for domain in raw_allowed_domains.split(",") if domain.strip()
+            )
+        elif isinstance(raw_allowed_domains, list):
+            allowed_domains = tuple(
+                str(domain).strip() for domain in raw_allowed_domains if str(domain).strip()
+            )
+        else:
+            allowed_domains = ()
+
+        raw_max_output_tokens = payload.get("max_output_tokens")
+        max_output_tokens = int(raw_max_output_tokens) if raw_max_output_tokens not in (None, "") else None
+
+        return cls(
+            provider=provider,
+            model=model,
+            display_name=display_name,
+            family=str(payload.get("family", family)).strip() or family,
+            name=str(payload.get("name", name)).strip() or name,
+            base_url=base_url,
+            api_key_env=str(payload.get("api_key_env", defaults["api_key_env"])).strip() or defaults["api_key_env"],
+            site_url_env=str(payload.get("site_url_env", defaults["site_url_env"])).strip() or defaults["site_url_env"],
+            app_name_env=str(payload.get("app_name_env", defaults["app_name_env"])).strip() or defaults["app_name_env"],
+            temperature=temperature,
+            reasoning_effort=reasoning_effort,
+            web_search_enabled=web_search_enabled,
+            web_search_external_web_access=web_search_external_web_access,
+            web_search_allowed_domains=allowed_domains,
+            max_output_tokens=max_output_tokens,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "display_name": self.display_name,
+            "family": self.family,
+            "name": self.name,
+            "base_url": self.base_url,
+            "api_key_env": self.api_key_env,
+            "site_url_env": self.site_url_env,
+            "app_name_env": self.app_name_env,
+            "temperature": self.temperature,
+            "reasoning_effort": self.reasoning_effort,
+            "web_search_enabled": self.web_search_enabled,
+            "web_search_external_web_access": self.web_search_external_web_access,
+            "web_search_allowed_domains": list(self.web_search_allowed_domains),
+            "max_output_tokens": self.max_output_tokens,
+        }
+
 
 def _load_json(config_path: Path) -> Any:
     with config_path.open("r", encoding="utf-8") as handle:
@@ -86,50 +170,7 @@ def _default_provider_metadata(provider: str) -> dict[str, str]:
 
 
 def _coerce_provider_entry(entry: dict[str, Any], *, family: str = "", name: str = "") -> ProviderConfig:
-    provider = str(entry.get("provider", "openrouter")).strip() or "openrouter"
-    model = str(entry.get("model", "")).strip()
-    if not model:
-        raise ValueError("Provider config is missing a model name.")
-
-    defaults = _default_provider_metadata(provider)
-    base_url = str(entry.get("base_url", defaults["base_url"])).strip() or defaults["base_url"]
-    temperature = float(entry.get("temperature", 0.2))
-    display_name = str(entry.get("display_name", _display_name_from_model(model))).strip() or _display_name_from_model(model)
-    reasoning_effort = str(entry.get("reasoning_effort") or "").strip() or None
-    web_search_enabled = _coerce_bool(entry.get("web_search_enabled"), default=False)
-    web_search_external_web_access = _coerce_bool(entry.get("web_search_external_web_access"), default=True)
-    raw_allowed_domains = entry.get("web_search_allowed_domains", ())
-    if isinstance(raw_allowed_domains, str):
-        allowed_domains = tuple(
-            domain.strip() for domain in raw_allowed_domains.split(",") if domain.strip()
-        )
-    elif isinstance(raw_allowed_domains, list):
-        allowed_domains = tuple(
-            str(domain).strip() for domain in raw_allowed_domains if str(domain).strip()
-        )
-    else:
-        allowed_domains = ()
-
-    raw_max_output_tokens = entry.get("max_output_tokens")
-    max_output_tokens = int(raw_max_output_tokens) if raw_max_output_tokens not in (None, "") else None
-
-    return ProviderConfig(
-        provider=provider,
-        model=model,
-        display_name=display_name,
-        family=str(entry.get("family", family)).strip() or family,
-        name=str(entry.get("name", name)).strip() or name,
-        base_url=base_url,
-        api_key_env=str(entry.get("api_key_env", defaults["api_key_env"])).strip() or defaults["api_key_env"],
-        site_url_env=str(entry.get("site_url_env", defaults["site_url_env"])).strip() or defaults["site_url_env"],
-        app_name_env=str(entry.get("app_name_env", defaults["app_name_env"])).strip() or defaults["app_name_env"],
-        temperature=temperature,
-        reasoning_effort=reasoning_effort,
-        web_search_enabled=web_search_enabled,
-        web_search_external_web_access=web_search_external_web_access,
-        web_search_allowed_domains=allowed_domains,
-        max_output_tokens=max_output_tokens,
-    )
+    return ProviderConfig.from_mapping(entry, family=family, name=name)
 
 
 def _iter_provider_entries(

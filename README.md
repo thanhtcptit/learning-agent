@@ -21,6 +21,7 @@ The goal is to create a **system-wide learning copilot** that works across all a
 * Session management (reuse last session, multiple sessions support, saved locally between runs)
 * Display conversation history
 * Settings popup (cascading LLM name/provider selection, language preference, modes, session switching, delete session, hotkey toggle, screen OCR toggle)
+* Remembers the last selected LLM/provider across restarts
 * OpenAI Responses API support for web search and reasoning-heavy models
 * Streaming responses (real-time token output)
 

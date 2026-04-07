@@ -18,6 +18,7 @@ class AppController(QObject):
     current_session_changed = Signal(object)
     message_upserted = Signal(object)
     preferred_language_changed = Signal(str)
+    provider_config_changed = Signal(object)
     screen_ocr_enabled_changed = Signal(bool)
     current_language_changed = Signal(str)
     status_changed = Signal(str)
@@ -137,6 +138,7 @@ class AppController(QObject):
 
         self._provider = self._provider_factory(provider_config)
         self._provider_config = provider_config
+        self.provider_config_changed.emit(provider_config)
         self.status_changed.emit(
             f"LLM set to {provider_config.name or provider_config.display_name or provider_config.model}"
         )
