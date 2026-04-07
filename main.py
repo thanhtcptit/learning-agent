@@ -15,7 +15,7 @@ except ImportError:  # pragma: no cover - optional during bootstrap
         return False
 
 from core.app_settings import AppSettings, load_app_settings, save_app_settings
-from core.config import DEFAULT_PROVIDER_CONFIG_PATH, build_provider, load_provider_config
+from core.config import build_provider, load_provider_config
 from core.hotkey import (
     EXIT_HOTKEY_ACTION,
     TOGGLE_LANGUAGE_HOTKEY_ACTION,
@@ -24,6 +24,7 @@ from core.hotkey import (
 )
 from core.orchestrator import AppController
 from core.screen_ocr import ScreenOcrService
+from core.runtime_paths import get_runtime_file_path
 from prompts.templates import PromptMode
 from session.manager import SessionManager
 from ui.main_window import MainWindow
@@ -83,16 +84,21 @@ def _load_app_settings(settings_path: Path) -> AppSettings:
     return AppSettings()
 
 
+def _load_environment_file() -> None:
+    env_path = get_runtime_file_path(".env")
+    if env_path.exists():
+        load_dotenv(env_path)
+
+
 def _resolve_startup_provider_config(app_settings: AppSettings):
     if app_settings.selected_provider_config is not None:
         return app_settings.selected_provider_config
 
-    return load_provider_config(DEFAULT_PROVIDER_CONFIG_PATH)
+    return load_provider_config()
 
 
 def main() -> int:
-    project_root = Path(__file__).resolve().parent
-    load_dotenv(project_root / ".env")
+    _load_environment_file()
 
     app = QApplication(sys.argv)
     app.setApplicationName("AI Learning Assistant")

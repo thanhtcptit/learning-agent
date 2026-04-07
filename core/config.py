@@ -5,13 +5,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from core.runtime_paths import get_bundle_data_root
 
-DEFAULT_LLM_API_ROOT = Path(__file__).resolve().parents[1] / "configs" / "llm_api"
-DEFAULT_PROVIDER_CONFIG_PATH = (
-    DEFAULT_LLM_API_ROOT / "qwen" / "qwen3.6-plus.json"
-)
+
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+
+
+def get_llm_api_root() -> Path:
+    return get_bundle_data_root() / "configs" / "llm_api"
+
+
+def get_default_provider_config_path() -> Path:
+    return get_llm_api_root() / "qwen" / "qwen3.6-plus.json"
+
+
+DEFAULT_LLM_API_ROOT = get_llm_api_root()
+DEFAULT_PROVIDER_CONFIG_PATH = get_default_provider_config_path()
 
 
 def _display_name_from_model(model: str) -> str:
@@ -195,16 +205,17 @@ def _iter_provider_entries(
         yield _coerce_provider_entry(raw_entry, family=family or path.parent.name, name=name or path.stem)
 
 
-def load_provider_configs(config_path: Path | str = DEFAULT_PROVIDER_CONFIG_PATH) -> list[ProviderConfig]:
-    return list(_iter_provider_entries(config_path))
+def load_provider_configs(config_path: Path | str | None = None) -> list[ProviderConfig]:
+    resolved_config_path = config_path if config_path is not None else get_default_provider_config_path()
+    return list(_iter_provider_entries(resolved_config_path))
 
 
-def load_provider_config(config_path: Path | str = DEFAULT_PROVIDER_CONFIG_PATH) -> ProviderConfig:
+def load_provider_config(config_path: Path | str | None = None) -> ProviderConfig:
     return load_provider_configs(config_path)[0]
 
 
-def discover_llm_catalog(root_path: Path | str = DEFAULT_LLM_API_ROOT) -> list[LLMModelEntry]:
-    root = Path(root_path)
+def discover_llm_catalog(root_path: Path | str | None = None) -> list[LLMModelEntry]:
+    root = Path(root_path) if root_path is not None else get_llm_api_root()
     if not root.exists():
         return []
 

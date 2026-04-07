@@ -90,7 +90,6 @@ Use clear language, intuition, and examples:
 
 {text}
 ```
-
 ### Summary
 
 ```
@@ -111,7 +110,6 @@ learning-agent/
 │
 ├── core/
 │   ├── hotkey.py             # Global keyboard listener
-│   ├── clipboard.py          # Clipboard handling (copy/paste)
 │   ├── orchestrator.py       # Pipeline: hotkey → clipboard → prompt → LLM → UI
 ├── llm/
 │   ├── base.py               # LLM interface
@@ -145,9 +143,21 @@ learning-agent/
 python main.py
 ```
 
+### 2. Build a portable executable
+
+The app can be bundled into a single Windows `.exe` with PyInstaller. Runtime paths now resolve bundled provider configs from the packaged data directory and look for an optional `.env` next to the executable.
+
+```powershell
+.\scripts\build_exe.ps1
+```
+
+The script calls `learning-agent.spec`, which bundles `configs\llm_api` into the executable and keeps the build definition checked into the repo.
+
+The build produces `dist\learning-agent.exe`. Keep API keys external by placing a `.env` file next to the executable or by setting the required environment variables on the target machine. Session and settings data still live under `%APPDATA%\learning-agent`.
+
 ---
 
-### 2. Use it
+### 3. Use it
 
 * Highlight any text
 * Press:

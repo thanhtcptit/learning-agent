@@ -102,7 +102,7 @@ def test_resolve_startup_provider_config_prefers_saved_selection(monkeypatch) ->
     saved_config = ProviderConfig(provider="openai", model="gpt-5.4", family="gpt", name="gpt-5.4")
     fallback_config = ProviderConfig(provider="openrouter", model="qwen/qwen3.6-plus:free", family="qwen", name="qwen3.6-plus")
 
-    monkeypatch.setattr(main_module, "load_provider_config", lambda _path=main_module.DEFAULT_PROVIDER_CONFIG_PATH: fallback_config)
+    monkeypatch.setattr(main_module, "load_provider_config", lambda _path=None: fallback_config)
 
     resolved_config = main_module._resolve_startup_provider_config(AppSettings(selected_provider_config=saved_config))
 
@@ -112,7 +112,7 @@ def test_resolve_startup_provider_config_prefers_saved_selection(monkeypatch) ->
 def test_resolve_startup_provider_config_uses_default_when_no_saved_selection(monkeypatch) -> None:
     fallback_config = ProviderConfig(provider="openrouter", model="qwen/qwen3.6-plus:free", family="qwen", name="qwen3.6-plus")
 
-    monkeypatch.setattr(main_module, "load_provider_config", lambda _path=main_module.DEFAULT_PROVIDER_CONFIG_PATH: fallback_config)
+    monkeypatch.setattr(main_module, "load_provider_config", lambda _path=None: fallback_config)
 
     resolved_config = main_module._resolve_startup_provider_config(AppSettings())
 

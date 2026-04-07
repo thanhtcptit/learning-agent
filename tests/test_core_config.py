@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from core.config import load_provider_config
+from core import runtime_paths
+from core.config import get_default_provider_config_path, get_llm_api_root, load_provider_config
 
 
 def test_load_provider_config_reads_first_entry(tmp_path) -> None:
@@ -63,3 +64,29 @@ def test_load_provider_config_reads_openai_tooling_options(tmp_path) -> None:
     assert config.web_search_external_web_access is False
     assert config.web_search_allowed_domains == ("openai.com", "developers.openai.com")
     assert config.max_output_tokens == 512
+
+
+def test_load_provider_config_uses_bundle_default_path_when_frozen(monkeypatch, tmp_path) -> None:
+    config_dir = tmp_path / "configs" / "llm_api" / "qwen"
+    config_dir.mkdir(parents=True)
+    (config_dir / "qwen3.6-plus.json").write_text(
+        json.dumps([
+            {
+                "provider": "openrouter",
+                "model": "qwen/qwen3.6-plus:free",
+            }
+        ]),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(runtime_paths.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(runtime_paths.sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr(runtime_paths.sys, "executable", str(tmp_path / "learning-agent.exe"), raising=False)
+
+    assert get_llm_api_root() == tmp_path / "configs" / "llm_api"
+    assert get_default_provider_config_path() == config_dir / "qwen3.6-plus.json"
+
+    config = load_provider_config()
+
+    assert config.provider == "openrouter"
+    assert config.model == "qwen/qwen3.6-plus:free"
