@@ -32,8 +32,12 @@ def test_calculate_hotkey_window_position_clamps_to_screen_bounds() -> None:
 
 
 def test_hotkey_window_waits_for_captured_user_message(monkeypatch) -> None:
+    class DummyController:
+        screen_ocr_enabled = False
+
     class DummyWindow:
         def __init__(self) -> None:
+            self._controller = DummyController()
             self._hotkey_pending = False
             self.visible = True
             self.show_calls = 0
@@ -54,11 +58,19 @@ def test_hotkey_window_waits_for_captured_user_message(monkeypatch) -> None:
                 self._show_for_hotkey()
             self.present_calls += 1
 
+    scheduled: list[int] = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled.append(delay_ms)
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
     window = DummyWindow()
 
     main_window_module.MainWindow._queue_hotkey_presentation(window)
     assert window._hotkey_pending is True
-    assert window.show_calls == 1
+    assert window.show_calls == 0
+    assert scheduled == [main_window_module.MainWindow.HOTKEY_PRESENTATION_DELAY_MS]
 
     main_window_module.MainWindow._maybe_present_for_hotkey(
         window,
@@ -66,7 +78,7 @@ def test_hotkey_window_waits_for_captured_user_message(monkeypatch) -> None:
     )
     assert window.present_calls == 0
     assert window._hotkey_pending is True
-    assert window.show_calls == 1
+    assert window.show_calls == 0
 
     main_window_module.MainWindow._maybe_present_for_hotkey(
         window,
@@ -77,9 +89,13 @@ def test_hotkey_window_waits_for_captured_user_message(monkeypatch) -> None:
     assert window._hotkey_pending is False
 
 
-def test_hotkey_window_waits_to_restore_until_after_capture_when_hidden(monkeypatch) -> None:
+def test_hotkey_window_defers_show_until_ocr_context_is_ready(monkeypatch) -> None:
+    class DummyController:
+        screen_ocr_enabled = True
+
     class DummyWindow:
         def __init__(self) -> None:
+            self._controller = DummyController()
             self._hotkey_pending = False
             self.visible = False
             self.show_calls = 0
@@ -99,13 +115,30 @@ def test_hotkey_window_waits_to_restore_until_after_capture_when_hidden(monkeypa
 
     window = DummyWindow()
 
+    scheduled: list[int] = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled.append(delay_ms)
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
     main_window_module.MainWindow._queue_hotkey_presentation(window)
     assert window._hotkey_pending is True
     assert window.show_calls == 0
+    assert scheduled == []
 
     main_window_module.MainWindow._maybe_present_for_hotkey(
         window,
         ConversationMessage(role="user", content="captured text"),
+    )
+
+    assert window.show_calls == 0
+    assert window.present_calls == 0
+    assert window._hotkey_pending is True
+
+    main_window_module.MainWindow._maybe_present_for_hotkey(
+        window,
+        ConversationMessage(role="user", content="captured text", screen_context="OCR context"),
     )
 
     assert window.show_calls == 1
@@ -202,6 +235,9 @@ def test_main_window_restores_from_tray() -> None:
         def isVisible(self) -> bool:
             return self.visible
 
+        def size(self) -> QSize:
+            return QSize(480, 652)
+
         def showNormal(self) -> None:
             self.show_normal_calls += 1
             self.minimized = False
@@ -210,6 +246,9 @@ def test_main_window_restores_from_tray() -> None:
         def show(self) -> None:
             self.show_calls += 1
             self.visible = True
+
+        def move(self, _position) -> None:
+            return None
 
         def raise_(self) -> None:
             self.raise_calls += 1
@@ -620,6 +659,48 @@ def test_main_window_request_minimize_to_tray_falls_back_to_taskbar_minimize() -
     window = DummyWindow()
 
     main_window_module.MainWindow.request_minimize_to_tray(window)
+
+    assert window.hide_calls == 0
+    assert window.show_minimized_calls == 1
+
+
+def test_main_window_start_minimized_hides_window_when_tray_exists() -> None:
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._tray_icon = object()
+            self.hide_calls = 0
+            self.show_minimized_calls = 0
+
+        def hide(self) -> None:
+            self.hide_calls += 1
+
+        def showMinimized(self) -> None:
+            self.show_minimized_calls += 1
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow.start_minimized(window)
+
+    assert window.hide_calls == 1
+    assert window.show_minimized_calls == 0
+
+
+def test_main_window_start_minimized_falls_back_to_taskbar_minimize() -> None:
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._tray_icon = None
+            self.hide_calls = 0
+            self.show_minimized_calls = 0
+
+        def hide(self) -> None:
+            self.hide_calls += 1
+
+        def showMinimized(self) -> None:
+            self.show_minimized_calls += 1
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow.start_minimized(window)
 
     assert window.hide_calls == 0
     assert window.show_minimized_calls == 1

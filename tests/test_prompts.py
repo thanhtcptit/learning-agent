@@ -30,6 +30,20 @@ def test_build_messages_summary_mode_uses_target_language() -> None:
     assert messages[1].content == "Summarize the following text:\n\nhola"
 
 
+def test_build_messages_includes_screen_context_when_provided() -> None:
+    messages = build_messages(
+        "vector",
+        PromptMode.EXPLAIN,
+        target_language="French",
+        screen_context="Toolbar label: Linear algebra",
+    )
+
+    assert messages[1].role == "user"
+    assert "Screen OCR context from the current screen" in messages[1].content
+    assert "Toolbar label: Linear algebra" in messages[1].content
+    assert messages[1].content.endswith("Explain the following text:\n\nvector")
+
+
 def test_build_chat_messages_uses_target_language() -> None:
     messages = build_chat_messages("How does this work?", target_language="French")
 

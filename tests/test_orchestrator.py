@@ -65,6 +65,25 @@ class FakeClipboardService:
         return self.text
 
 
+class FakeScreenOcrService:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        self.capture_calls: list[str | None] = []
+
+    def capture_screen_text(self, selection_text: str | None = None) -> str:
+        self.capture_calls.append(selection_text)
+        return self.text
+
+
+class FailingScreenOcrService:
+    def __init__(self) -> None:
+        self.capture_calls: list[str | None] = []
+
+    def capture_screen_text(self, selection_text: str | None = None) -> str:
+        self.capture_calls.append(selection_text)
+        raise RuntimeError("OCR failed")
+
+
 def test_submit_text_appends_user_and_streamed_assistant_message(monkeypatch) -> None:
     monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
 
@@ -115,19 +134,97 @@ def test_handle_hotkey_captures_clipboard_text(monkeypatch) -> None:
 
     provider = FakeProvider()
     clipboard = FakeClipboardService("Selection from another app")
-    controller = AppController(provider, clipboard_service=clipboard)
+    screen_ocr = FakeScreenOcrService("Nearby screen text")
+    controller = AppController(provider, clipboard_service=clipboard, screen_ocr_service=screen_ocr)
 
     controller.handle_hotkey(PromptMode.DEFINITION)
 
     session = controller.current_session
 
     assert clipboard.capture_calls == 1
+    assert screen_ocr.capture_calls == []
     assert session.messages[0].role == "user"
     assert session.messages[0].content == "Selection from another app"
+    assert session.messages[0].screen_context == ""
     assert session.messages[1].content == "Hello"
     assert provider.requests[0][0][0].content.startswith("You are a dictionary and language-learning assistant.")
     assert "Vietnamese" in provider.requests[0][0][0].content
     assert provider.requests[0][0][-1].content == "Define the following word or term:\n\nSelection from another app"
+
+
+def test_handle_hotkey_includes_screen_ocr_context_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+
+    provider = FakeProvider()
+    clipboard = FakeClipboardService("Highlighted text")
+    screen_ocr = FakeScreenOcrService("Toolbar label: Linear algebra")
+    controller = AppController(
+        provider,
+        clipboard_service=clipboard,
+        screen_ocr_service=screen_ocr,
+        screen_ocr_enabled=True,
+    )
+
+    controller.handle_hotkey(PromptMode.EXPLAIN)
+
+    assert clipboard.capture_calls == 1
+    assert screen_ocr.capture_calls == ["Highlighted text"]
+    assert controller.current_session.messages[0].screen_context == "Toolbar label: Linear algebra"
+    user_prompt = provider.requests[0][0][-1].content
+    assert "Screen OCR context from the current screen" in user_prompt
+    assert "Toolbar label: Linear algebra" in user_prompt
+    assert user_prompt.endswith("Explain the following text:\n\nHighlighted text")
+
+
+def test_handle_hotkey_emits_user_message_before_screen_ocr_starts(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+
+    provider = FakeProvider()
+    clipboard = FakeClipboardService("Highlighted text")
+    screen_ocr = FakeScreenOcrService("Toolbar label: Linear algebra")
+    controller = AppController(
+        provider,
+        clipboard_service=clipboard,
+        screen_ocr_service=screen_ocr,
+        screen_ocr_enabled=True,
+    )
+
+    observed_message_states: list[tuple[str, str, list[str | None]]] = []
+
+    def record_message(message) -> None:
+        observed_message_states.append((message.role, message.content, list(screen_ocr.capture_calls)))
+
+    controller.message_upserted.connect(record_message)
+
+    controller.handle_hotkey(PromptMode.EXPLAIN)
+
+    assert observed_message_states[0][0] == "user"
+    assert observed_message_states[0][2] == []
+    assert observed_message_states[1][0] == "user"
+    assert observed_message_states[1][2] == ["Highlighted text"]
+
+
+def test_handle_hotkey_continues_when_screen_ocr_fails(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+
+    provider = FakeProvider()
+    clipboard = FakeClipboardService("Highlighted text")
+    screen_ocr = FailingScreenOcrService()
+    controller = AppController(
+        provider,
+        clipboard_service=clipboard,
+        screen_ocr_service=screen_ocr,
+        screen_ocr_enabled=True,
+    )
+
+    controller.handle_hotkey(PromptMode.SUMMARY)
+
+    assert clipboard.capture_calls == 1
+    assert screen_ocr.capture_calls == ["Highlighted text"]
+    assert controller.current_session.messages[0].screen_context == ""
+    user_prompt = provider.requests[0][0][-1].content
+    assert "Screen OCR context from the current screen" not in user_prompt
+    assert user_prompt.endswith("Summarize the following text:\n\nHighlighted text")
 
 
 def test_delete_session_updates_current_session(monkeypatch) -> None:

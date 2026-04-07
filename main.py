@@ -23,6 +23,7 @@ from core.hotkey import (
     GlobalHotkeyListener,
 )
 from core.orchestrator import AppController
+from core.screen_ocr import ScreenOcrService
 from prompts.templates import PromptMode
 from session.manager import SessionManager
 from ui.main_window import MainWindow
@@ -109,6 +110,8 @@ def main() -> int:
         provider_factory=build_provider,
         default_mode=PromptMode.EXPLAIN,
         target_language=app_settings.preferred_language,
+        screen_ocr_enabled=app_settings.screen_ocr_enabled,
+        screen_ocr_service=ScreenOcrService(),
         session_manager=session_manager,
     )
 
@@ -119,15 +122,22 @@ def main() -> int:
 
     hotkey_listener.hotkey_triggered.connect(hotkey_router.handle_action)
     hotkey_listener.status_changed.connect(controller.status_changed.emit)
-    window.show()
+    window.start_minimized()
 
-    def save_preferred_language() -> None:
+    def save_settings() -> None:
         try:
-            save_app_settings(app_settings_path, AppSettings(preferred_language=controller.preferred_language))
+            save_app_settings(
+                app_settings_path,
+                AppSettings(
+                    preferred_language=controller.preferred_language,
+                    screen_ocr_enabled=controller.screen_ocr_enabled,
+                ),
+            )
         except Exception as exc:  # noqa: BLE001 - settings persistence should not block exit
             controller.status_changed.emit(f"Failed to save settings: {exc}")
 
-    controller.preferred_language_changed.connect(lambda _language: save_preferred_language())
+    controller.preferred_language_changed.connect(lambda _language: save_settings())
+    controller.screen_ocr_enabled_changed.connect(lambda _enabled: save_settings())
 
     try:
         hotkey_listener.start()
@@ -141,7 +151,7 @@ def main() -> int:
             controller.status_changed.emit(f"Failed to save sessions: {exc}")
 
     app.aboutToQuit.connect(save_sessions)
-    app.aboutToQuit.connect(save_preferred_language)
+    app.aboutToQuit.connect(save_settings)
     app.aboutToQuit.connect(hotkey_listener.stop)
     app.aboutToQuit.connect(controller.shutdown)
     return app.exec()

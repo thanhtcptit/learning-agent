@@ -102,6 +102,18 @@ class SettingsPopup(QDialog):
         self.hotkey_checkbox = QCheckBox("Enable global hotkeys")
         self.hotkey_checkbox.setObjectName("PopupHotkeyToggle")
 
+        self.screen_ocr_checkbox = QCheckBox("Enable screen OCR context")
+        self.screen_ocr_checkbox.setObjectName("PopupScreenOcrToggle")
+        self.screen_ocr_checkbox.setToolTip(
+            "Capture the current monitor and use its text as transient context when a mode hotkey is pressed."
+        )
+
+        self.screen_ocr_hint = QLabel(
+            "Useful when the selected text depends on nearby labels, code, tables, or other surrounding content."
+        )
+        self.screen_ocr_hint.setObjectName("PopupHint")
+        self.screen_ocr_hint.setWordWrap(True)
+
         self.session_combo = QComboBox()
         self.new_session_button = QPushButton("New")
         self.new_session_button.setObjectName("PopupSecondaryButton")
@@ -136,6 +148,8 @@ class SettingsPopup(QDialog):
         card_layout.addWidget(section_title)
         card_layout.addLayout(llm_layout)
         card_layout.addWidget(self.hotkey_checkbox)
+        card_layout.addWidget(self.screen_ocr_checkbox)
+        card_layout.addWidget(self.screen_ocr_hint)
         card_layout.addLayout(session_row)
         card_layout.addWidget(self.mode_combo)
         card_layout.addWidget(self.language_input)
@@ -178,10 +192,14 @@ class SettingsPopup(QDialog):
                 font-size: 12px;
                 min-height: 32px;
             }
+            QLabel#PopupHint {
+                color: #64748b;
+                font-size: 11px;
+            }
             QComboBox#PopupModelCombo, QComboBox#PopupProviderCombo {
                 min-width: 0px;
             }
-            QCheckBox#PopupHotkeyToggle {
+            QCheckBox#PopupHotkeyToggle, QCheckBox#PopupScreenOcrToggle {
                 color: #0f172a;
                 font-weight: 600;
             }
@@ -242,6 +260,7 @@ class SettingsPopup(QDialog):
         self._controller.current_session_changed.connect(self._sync_sessions)
         self._controller.current_session_changed.connect(self._sync_llm_selection)
         self._controller.preferred_language_changed.connect(self._sync_language_input)
+        self._controller.screen_ocr_enabled_changed.connect(self._sync_screen_ocr_toggle)
         self._controller.current_language_changed.connect(self._sync_current_language_status)
         self._controller.status_changed.connect(self._set_status)
         self._hotkey_listener.status_changed.connect(self._set_status)
@@ -249,6 +268,7 @@ class SettingsPopup(QDialog):
         self.model_combo.currentIndexChanged.connect(self._on_model_selected)
         self.provider_combo.currentIndexChanged.connect(self._on_provider_selected)
         self.hotkey_checkbox.toggled.connect(self._on_hotkey_toggled)
+        self.screen_ocr_checkbox.toggled.connect(self._on_screen_ocr_toggled)
         self.session_combo.currentIndexChanged.connect(self._on_session_selected)
         self.new_session_button.clicked.connect(self._on_new_session)
         self.delete_session_button.clicked.connect(self._on_delete_session)
@@ -263,6 +283,7 @@ class SettingsPopup(QDialog):
         self.hotkey_checkbox.blockSignals(True)
         self.hotkey_checkbox.setChecked(self._hotkey_listener.is_running)
         self.hotkey_checkbox.blockSignals(False)
+        self._sync_screen_ocr_toggle(self._controller.screen_ocr_enabled)
         self._sync_llm_selection(self._controller.provider_config)
 
     def _sync_sessions(self, _value: object) -> None:
@@ -301,6 +322,18 @@ class SettingsPopup(QDialog):
 
     def _sync_current_language_status(self, language: str) -> None:
         self.status_label.setText(f"Current language: {language}")
+
+    def _sync_screen_ocr_toggle(self, enabled: bool) -> None:
+        if self._updating:
+            return
+
+        self._updating = True
+        try:
+            self.screen_ocr_checkbox.blockSignals(True)
+            self.screen_ocr_checkbox.setChecked(enabled)
+            self.screen_ocr_checkbox.blockSignals(False)
+        finally:
+            self._updating = False
 
     def _refresh_catalog(self) -> None:
         self._llm_entries = discover_llm_catalog()
@@ -508,6 +541,12 @@ class SettingsPopup(QDialog):
             self.hotkey_checkbox.setChecked(self._hotkey_listener.is_running)
             self.hotkey_checkbox.blockSignals(False)
             self._set_status(f"Hotkey toggle failed: {exc}")
+
+    def _on_screen_ocr_toggled(self, enabled: bool) -> None:
+        if self._updating:
+            return
+
+        self._controller.set_screen_ocr_enabled(enabled)
 
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)

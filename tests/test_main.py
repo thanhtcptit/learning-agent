@@ -31,6 +31,7 @@ class FakeWindow:
         self.pending_new_session = pending_new_session
         self.request_exit_calls = 0
         self.toggle_window_visibility_calls = 0
+        self.present_prompt_hotkey_calls = 0
 
     def consume_new_session_request(self) -> bool:
         pending = self.pending_new_session
@@ -42,6 +43,9 @@ class FakeWindow:
 
     def toggle_window_visibility(self) -> None:
         self.toggle_window_visibility_calls += 1
+
+    def present_prompt_hotkey(self) -> None:
+        self.present_prompt_hotkey_calls += 1
 
 
 def test_hotkey_router_creates_new_session_after_minimize() -> None:

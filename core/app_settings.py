@@ -8,18 +8,40 @@ from typing import Any, Mapping
 from prompts.templates import DEFAULT_TARGET_LANGUAGE
 
 
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+
+    if value is None:
+        return default
+
+    return bool(value)
+
+
 @dataclass(frozen=True)
 class AppSettings:
     preferred_language: str = DEFAULT_TARGET_LANGUAGE
+    screen_ocr_enabled: bool = False
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "AppSettings":
         preferred_language = str(payload.get("preferred_language") or DEFAULT_TARGET_LANGUAGE).strip()
-        return cls(preferred_language=preferred_language or DEFAULT_TARGET_LANGUAGE)
+        return cls(
+            preferred_language=preferred_language or DEFAULT_TARGET_LANGUAGE,
+            screen_ocr_enabled=_coerce_bool(payload.get("screen_ocr_enabled"), default=False),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "preferred_language": self.preferred_language,
+            "screen_ocr_enabled": self.screen_ocr_enabled,
         }
 
 

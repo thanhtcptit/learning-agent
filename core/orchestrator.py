@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, Signal
 
 from core.clipboard import ClipboardService
 from core.config import ProviderConfig, build_provider
+from core.screen_ocr import ScreenOcrService
 from llm.base import LLMMessage, LLMProvider
 from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages
 from session.manager import ConversationSession, SessionManager
@@ -17,6 +18,7 @@ class AppController(QObject):
     current_session_changed = Signal(object)
     message_upserted = Signal(object)
     preferred_language_changed = Signal(str)
+    screen_ocr_enabled_changed = Signal(bool)
     current_language_changed = Signal(str)
     status_changed = Signal(str)
     error_occurred = Signal(str)
@@ -30,7 +32,9 @@ class AppController(QObject):
         provider_factory: Callable[[ProviderConfig], LLMProvider] | None = None,
         default_mode: PromptMode = PromptMode.EXPLAIN,
         target_language: str = DEFAULT_TARGET_LANGUAGE,
+        screen_ocr_enabled: bool = False,
         clipboard_service: ClipboardService | None = None,
+        screen_ocr_service: ScreenOcrService | None = None,
         session_manager: SessionManager | None = None,
     ) -> None:
         super().__init__()
@@ -38,10 +42,12 @@ class AppController(QObject):
         self._provider_config = provider_config or ProviderConfig(provider="unknown", model="unknown")
         self._provider_factory = provider_factory or build_provider
         self._clipboard_service = clipboard_service or ClipboardService()
+        self._screen_ocr_service = screen_ocr_service or ScreenOcrService()
         self._session_manager = session_manager or SessionManager()
         self._default_mode = default_mode
         self._preferred_language = target_language.strip() or DEFAULT_TARGET_LANGUAGE
         self._target_language = self._preferred_language
+        self._screen_ocr_enabled = bool(screen_ocr_enabled)
         self._generation_lock = threading.Lock()
         self._active_request = False
         self._active_cancel_event: threading.Event | None = None
@@ -59,6 +65,10 @@ class AppController(QObject):
     @property
     def preferred_language(self) -> str:
         return self._preferred_language
+
+    @property
+    def screen_ocr_enabled(self) -> bool:
+        return self._screen_ocr_enabled
 
     @property
     def is_busy(self) -> bool:
@@ -91,6 +101,15 @@ class AppController(QObject):
         self.preferred_language_changed.emit(cleaned)
         self.status_changed.emit(f"Language set to {cleaned}")
         self.current_language_changed.emit(cleaned)
+
+    def set_screen_ocr_enabled(self, enabled: bool) -> None:
+        state = bool(enabled)
+        if state == self._screen_ocr_enabled:
+            return
+
+        self._screen_ocr_enabled = state
+        self.screen_ocr_enabled_changed.emit(state)
+        self.status_changed.emit("Screen OCR enabled" if state else "Screen OCR disabled")
 
     def toggle_target_language(self) -> None:
         current_language = self._target_language.strip().lower()
@@ -169,7 +188,37 @@ class AppController(QObject):
                     self.status_changed.emit("Clipboard capture returned no text")
                     self._end_request()
                     return
-                self._dispatch_reserved_request(text, mode, self._target_language, cancel_event)
+
+                session = self._session_manager.current_session()
+                message_mode = mode.value if mode is not None else None
+                user_message = session.append_message(
+                    "user",
+                    text,
+                    mode=message_mode,
+                    screen_context="",
+                )
+                self.message_upserted.emit(user_message)
+                self._emit_sessions_changed()
+
+                screen_context = ""
+                if self._screen_ocr_enabled:
+                    screen_context = self._capture_screen_context(mode, text)
+                    if screen_context:
+                        try:
+                            updated_message = self._session_manager.update_message_screen_context(user_message.id, screen_context)
+                            self.message_upserted.emit(updated_message)
+                        except KeyError:
+                            pass
+
+                self._dispatch_reserved_request(
+                    text,
+                    mode,
+                    self._target_language,
+                    cancel_event,
+                    screen_context=screen_context,
+                    session=session,
+                    preappended_user_message=True,
+                )
             except Exception as exc:  # noqa: BLE001 - capture failures should be surfaced to the UI
                 self.error_occurred.emit(f"Clipboard capture failed: {exc}")
                 self.status_changed.emit("Error")
@@ -203,7 +252,8 @@ class AppController(QObject):
             return
 
         self.busy_changed.emit(True)
-        self._dispatch_reserved_request(text, mode, target_language, cancel_event)
+        session = self._session_manager.current_session()
+        self._dispatch_reserved_request(text, mode, target_language, cancel_event, session=session)
 
     def _dispatch_chat_request(self, text: str, target_language: str) -> None:
         cancel_event = self._begin_request()
@@ -212,7 +262,8 @@ class AppController(QObject):
             return
 
         self.busy_changed.emit(True)
-        self._dispatch_reserved_request(text, None, target_language, cancel_event)
+        session = self._session_manager.current_session()
+        self._dispatch_reserved_request(text, None, target_language, cancel_event, session=session)
 
     def _dispatch_reserved_request(
         self,
@@ -220,17 +271,29 @@ class AppController(QObject):
         mode: PromptMode | None,
         target_language: str,
         cancel_event: threading.Event,
+        *,
+        screen_context: str | None = None,
+        session: ConversationSession | None = None,
+        preappended_user_message: bool = False,
     ) -> None:
         if cancel_event.is_set():
             self.status_changed.emit("Request stopped")
             self._end_request()
             return
 
-        session = self._session_manager.current_session()
+        session = session or self._session_manager.current_session()
         message_mode = mode.value if mode is not None else None
-        user_message = session.append_message("user", text, mode=message_mode)
-        self.message_upserted.emit(user_message)
-        self._emit_sessions_changed()
+        if not preappended_user_message:
+            user_message = session.append_message(
+                "user",
+                text,
+                mode=message_mode,
+                screen_context=screen_context,
+            )
+            self.message_upserted.emit(user_message)
+            self._emit_sessions_changed()
+        else:
+            user_message = session.messages[-1]
 
         history_messages = session.llm_history(exclude_last=1, limit=20)
         assistant_message = session.append_message("assistant", "", mode=message_mode)
@@ -244,7 +307,7 @@ class AppController(QObject):
         if mode is None:
             request_messages = [*history_messages, *build_chat_messages(text, target_language)]
         else:
-            request_messages = [*history_messages, *build_messages(text, mode, target_language)]
+            request_messages = [*history_messages, *build_messages(text, mode, target_language, screen_context=screen_context)]
         self.status_changed.emit("Thinking...")
         self.busy_changed.emit(True)
 
@@ -320,6 +383,14 @@ class AppController(QObject):
     def _current_cancel_event(self) -> threading.Event | None:
         with self._generation_lock:
             return self._active_cancel_event
+
+    def _capture_screen_context(self, mode: PromptMode, selection_text: str) -> str:
+        self.status_changed.emit(f"Scanning screen for OCR context for {mode.label}")
+        try:
+            return self._screen_ocr_service.capture_screen_text(selection_text).strip()
+        except Exception as exc:  # noqa: BLE001 - OCR failures should not interrupt the main hotkey flow
+            self.status_changed.emit(f"Screen OCR unavailable: {exc}")
+            return ""
 
     def _finalize_cancelled_request(self, user_message_id: str, assistant_message_id: str, response_text: str) -> None:
         try:

@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from core.hotkey import GlobalHotkeyListener
 from core.orchestrator import AppController
 from session.manager import ConversationMessage, ConversationSession
+from prompts.templates import PromptMode
 from ui.chat_widget import ChatTranscript
 from ui.input_box import MessageInput
 from ui.settings_popup import SettingsPopup
@@ -49,6 +50,8 @@ def _calculate_hotkey_window_position(available_geometry: QRect, cursor_position
 
 
 class MainWindow(QMainWindow):
+    HOTKEY_PRESENTATION_DELAY_MS = 250
+
     def __init__(self, controller: AppController, hotkey_listener: GlobalHotkeyListener) -> None:
         super().__init__()
         self._controller = controller
@@ -314,6 +317,14 @@ class MainWindow(QMainWindow):
         self._load_session(self._controller.current_session)
         self._set_current_language(self._controller.target_language)
 
+    def start_minimized(self) -> None:
+        if self._tray_icon is not None:
+            self._tray_hidden = True
+            self.hide()
+            return
+
+        self.showMinimized()
+
     def _scroll_latest_messages_after_initial_show(self) -> None:
         if not self._initial_show_scroll_pending:
             return
@@ -332,10 +343,19 @@ class MainWindow(QMainWindow):
 
         self.settings_popup.show_near(self.settings_button)
 
-    def _queue_hotkey_presentation(self, _mode: object | None = None) -> None:
+    def _queue_hotkey_presentation(self, mode: object | None = None) -> None:
+        if not isinstance(mode, PromptMode) and mode is not None:
+            return
+
         self._hotkey_pending = True
-        if self.isVisible():
-            self._show_for_hotkey()
+        if getattr(self._controller, "screen_ocr_enabled", False):
+            return
+
+        delay_ms = getattr(self, "HOTKEY_PRESENTATION_DELAY_MS", MainWindow.HOTKEY_PRESENTATION_DELAY_MS)
+        QTimer.singleShot(delay_ms, self._show_for_hotkey)
+
+    def present_prompt_hotkey(self) -> None:
+        self._queue_hotkey_presentation()
 
     def _maybe_present_for_hotkey(self, message: object) -> None:
         if not self._hotkey_pending:
@@ -344,14 +364,23 @@ class MainWindow(QMainWindow):
         if not isinstance(message, ConversationMessage):
             return
 
-        if message.role != "user":
+        screen_ocr_enabled = getattr(self._controller, "screen_ocr_enabled", False)
+        if message.role == "user":
+            if not message.content.strip():
+                return
+
+            if screen_ocr_enabled and not message.screen_context.strip():
+                return
+
+            self._hotkey_pending = False
+            self._focus_for_hotkey()
             return
 
-        if not message.content.strip():
+        if screen_ocr_enabled and message.role == "assistant":
+            self._hotkey_pending = False
+            self._focus_for_hotkey()
             return
 
-        self._hotkey_pending = False
-        self._focus_for_hotkey()
 
     def _show_for_hotkey(self) -> None:
         reposition = self.isMinimized() or getattr(self, "_tray_hidden", False)

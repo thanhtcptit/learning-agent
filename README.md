@@ -7,6 +7,7 @@ This tool runs in the background and allows users to:
 * Select any text on screen
 * Press a keyboard shortcut
 * Instantly get an AI-generated explanation in a chat interface
+* Optionally scan the current screen with lightweight CPU OCR to add surrounding context
 
 The goal is to create a **system-wide learning copilot** that works across all applications (browser, IDE, PDF reader, etc.).
 
@@ -19,7 +20,7 @@ The goal is to create a **system-wide learning copilot** that works across all a
 * Return response via a chat window UI
 * Session management (reuse last session, multiple sessions support, saved locally between runs)
 * Display conversation history
-* Settings popup (cascading LLM name/provider selection, language preference, modes, session switching, delete session, hotkey toggle)
+* Settings popup (cascading LLM name/provider selection, language preference, modes, session switching, delete session, hotkey toggle, screen OCR toggle)
 * Streaming responses (real-time token output)
 
 ---
@@ -61,6 +62,7 @@ uv sync
 
    * Simulates `Ctrl + C`
    * Reads clipboard content
+    * If enabled, captures the current monitor and extracts on-screen text with OCR
    * Builds a prompt based on mode
    * Sends request to LLM
 4. Response is shown in the chat UI with streaming token updates
@@ -157,8 +159,9 @@ python main.py
   * `Stop` button → cancel the current request
 * Check chat window output
 * Press the settings icon to open the popup and disable hotkeys if needed
+* If OCR is enabled, click the OCR context toggle on a user query to reveal the captured screen text above that query
 
-The chosen language defaults to Vietnamese and is saved between runs.
+The chosen language defaults to Vietnamese and is saved between runs. Screen OCR is off by default and can be enabled from the settings popup.
 
 ---
 

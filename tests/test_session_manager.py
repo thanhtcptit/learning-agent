@@ -69,7 +69,12 @@ def test_llm_history_limits_to_latest_messages() -> None:
 def test_session_manager_round_trips_through_json_file(tmp_path) -> None:
     manager = SessionManager()
     first_session = manager.current_session()
-    manager.append_message("user", "persist me", mode=PromptMode.EXPLAIN.value)
+    manager.append_message(
+        "user",
+        "persist me",
+        mode=PromptMode.EXPLAIN.value,
+        screen_context="OCR context",
+    )
     second_session = manager.create_session("Second")
     manager.append_message("assistant", "reply", include_in_context=False)
 
@@ -81,8 +86,19 @@ def test_session_manager_round_trips_through_json_file(tmp_path) -> None:
     assert [session.title for session in restored.list_sessions()] == [first_session.title, "Second"]
     assert restored.current_session().id == second_session.id
     assert restored.list_sessions()[0].messages[0].content == "persist me"
+    assert restored.list_sessions()[0].messages[0].screen_context == "OCR context"
     assert restored.list_sessions()[1].messages[0].content == "reply"
     assert restored.list_sessions()[1].messages[0].include_in_context is False
+
+
+def test_session_manager_updates_screen_context() -> None:
+    manager = SessionManager()
+    message = manager.append_message("user", "persist me")
+
+    updated = manager.update_message_screen_context(message.id, "OCR context")
+
+    assert updated.screen_context == "OCR context"
+    assert manager.current_session().messages[0].screen_context == "OCR context"
 
 
 def test_session_manager_deletes_current_session_and_keeps_valid_selection() -> None:
