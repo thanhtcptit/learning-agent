@@ -18,6 +18,23 @@ def _display_name_from_model(model: str) -> str:
     return model.split(":", 1)[0].strip() or model
 
 
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+
+    if value is None:
+        return default
+
+    return bool(value)
+
+
 @dataclass(frozen=True)
 class LLMModelEntry:
     display_name: str
@@ -38,6 +55,11 @@ class ProviderConfig:
     site_url_env: str = "OPENROUTER_SITE_URL"
     app_name_env: str = "OPENROUTER_APP_NAME"
     temperature: float = 0.2
+    reasoning_effort: str | None = None
+    web_search_enabled: bool = False
+    web_search_external_web_access: bool = True
+    web_search_allowed_domains: tuple[str, ...] = ()
+    max_output_tokens: int | None = None
 
 
 def _load_json(config_path: Path) -> Any:
@@ -73,6 +95,23 @@ def _coerce_provider_entry(entry: dict[str, Any], *, family: str = "", name: str
     base_url = str(entry.get("base_url", defaults["base_url"])).strip() or defaults["base_url"]
     temperature = float(entry.get("temperature", 0.2))
     display_name = str(entry.get("display_name", _display_name_from_model(model))).strip() or _display_name_from_model(model)
+    reasoning_effort = str(entry.get("reasoning_effort") or "").strip() or None
+    web_search_enabled = _coerce_bool(entry.get("web_search_enabled"), default=False)
+    web_search_external_web_access = _coerce_bool(entry.get("web_search_external_web_access"), default=True)
+    raw_allowed_domains = entry.get("web_search_allowed_domains", ())
+    if isinstance(raw_allowed_domains, str):
+        allowed_domains = tuple(
+            domain.strip() for domain in raw_allowed_domains.split(",") if domain.strip()
+        )
+    elif isinstance(raw_allowed_domains, list):
+        allowed_domains = tuple(
+            str(domain).strip() for domain in raw_allowed_domains if str(domain).strip()
+        )
+    else:
+        allowed_domains = ()
+
+    raw_max_output_tokens = entry.get("max_output_tokens")
+    max_output_tokens = int(raw_max_output_tokens) if raw_max_output_tokens not in (None, "") else None
 
     return ProviderConfig(
         provider=provider,
@@ -85,6 +124,11 @@ def _coerce_provider_entry(entry: dict[str, Any], *, family: str = "", name: str
         site_url_env=str(entry.get("site_url_env", defaults["site_url_env"])).strip() or defaults["site_url_env"],
         app_name_env=str(entry.get("app_name_env", defaults["app_name_env"])).strip() or defaults["app_name_env"],
         temperature=temperature,
+        reasoning_effort=reasoning_effort,
+        web_search_enabled=web_search_enabled,
+        web_search_external_web_access=web_search_external_web_access,
+        web_search_allowed_domains=allowed_domains,
+        max_output_tokens=max_output_tokens,
     )
 
 
@@ -146,6 +190,16 @@ def discover_llm_catalog(root_path: Path | str = DEFAULT_LLM_API_ROOT) -> list[L
 
 
 def build_provider(config: ProviderConfig):
-    from llm.openrouter_provider import OpenRouterProvider
+    provider_key = config.provider.strip().lower()
 
-    return OpenRouterProvider.from_config(config)
+    if provider_key == "openai":
+        from llm.openai_provider import OpenAIProvider
+
+        return OpenAIProvider.from_config(config)
+
+    if provider_key == "openrouter":
+        from llm.openrouter_provider import OpenRouterProvider
+
+        return OpenRouterProvider.from_config(config)
+
+    raise ValueError(f"Unsupported provider: {config.provider!r}")

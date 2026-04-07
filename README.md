@@ -21,6 +21,7 @@ The goal is to create a **system-wide learning copilot** that works across all a
 * Session management (reuse last session, multiple sessions support, saved locally between runs)
 * Display conversation history
 * Settings popup (cascading LLM name/provider selection, language preference, modes, session switching, delete session, hotkey toggle, screen OCR toggle)
+* OpenAI Responses API support for web search and reasoning-heavy models
 * Streaming responses (real-time token output)
 
 ---
@@ -63,6 +64,7 @@ uv sync
    * Simulates `Ctrl + C`
    * Reads clipboard content
     * If enabled, captures the current monitor and extracts on-screen text with OCR
+  * If the selected provider is OpenAI, it can use web search and reasoning before answering
    * Builds a prompt based on mode
    * Sends request to LLM
 4. Response is shown in the chat UI with streaming token updates
