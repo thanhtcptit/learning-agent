@@ -204,7 +204,7 @@ class AppController(QObject):
                 self._emit_sessions_changed()
 
                 screen_context = ""
-                if self._screen_ocr_enabled:
+                if mode is PromptMode.DEFINITION and self._screen_ocr_enabled:
                     screen_context = self._capture_screen_context(mode, text)
                     if screen_context:
                         try:

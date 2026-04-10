@@ -7,7 +7,7 @@ This tool runs in the background and allows users to:
 * Select any text on screen
 * Press a keyboard shortcut
 * Instantly get an AI-generated explanation in a chat interface
-* Optionally scan the current screen with lightweight CPU OCR to add surrounding context
+* Optionally scan the current screen with lightweight CPU OCR to add surrounding context for Definition mode
 
 The goal is to create a **system-wide learning copilot** that works across all applications (browser, IDE, PDF reader, etc.).
 
@@ -64,7 +64,7 @@ uv sync
 
    * Simulates `Ctrl + C`
    * Reads clipboard content
-    * If enabled, captures the current monitor, finds the ROI around the highlighted text, and OCRs that cropped area
+    * If enabled for Definition mode, captures the current monitor, finds the ROI around the highlighted text, and OCRs that cropped area
   * If the selected provider is OpenAI, it can use web search and reasoning before answering
    * Builds a prompt based on mode
    * Sends request to LLM
@@ -174,7 +174,7 @@ The build produces `dist\learning-agent.exe`. Keep API keys external by placing 
 * Press the settings icon to open the popup and disable hotkeys if needed
 * If OCR is enabled, click the OCR context toggle on a user query to reveal the captured screen text above that query
 
-The chosen language defaults to Vietnamese and is saved between runs. Screen OCR is off by default and can be enabled from the settings popup. When enabled, the app uses the selected text to localize a smaller OCR region before scanning it.
+The chosen language defaults to Vietnamese and is saved between runs. Screen OCR is off by default and can be enabled from the settings popup. When enabled, the app uses the selected text to localize a smaller OCR region before scanning it, but only for Definition mode.
 
 ---
 

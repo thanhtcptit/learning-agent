@@ -348,7 +348,7 @@ class MainWindow(QMainWindow):
             return
 
         self._hotkey_pending = True
-        if getattr(self._controller, "screen_ocr_enabled", False):
+        if mode is PromptMode.DEFINITION and getattr(self._controller, "screen_ocr_enabled", False):
             return
 
         delay_ms = getattr(self, "HOTKEY_PRESENTATION_DELAY_MS", MainWindow.HOTKEY_PRESENTATION_DELAY_MS)
@@ -365,22 +365,22 @@ class MainWindow(QMainWindow):
             return
 
         screen_ocr_enabled = getattr(self._controller, "screen_ocr_enabled", False)
+        is_definition_mode = message.mode == PromptMode.DEFINITION.value
         if message.role == "user":
             if not message.content.strip():
                 return
 
-            if screen_ocr_enabled and not message.screen_context.strip():
+            if is_definition_mode and screen_ocr_enabled and not message.screen_context.strip():
                 return
 
             self._hotkey_pending = False
             self._focus_for_hotkey()
             return
 
-        if screen_ocr_enabled and message.role == "assistant":
+        if is_definition_mode and screen_ocr_enabled and message.role == "assistant":
             self._hotkey_pending = False
             self._focus_for_hotkey()
             return
-
 
     def _show_for_hotkey(self) -> None:
         reposition = self.isMinimized() or getattr(self, "_tray_hidden", False)

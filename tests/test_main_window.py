@@ -4,6 +4,7 @@ from PySide6.QtCore import QPoint, QRect, QSize
 
 import ui.main_window as main_window_module
 
+from prompts.templates import PromptMode
 from ui.main_window import _calculate_hotkey_window_position
 from session.manager import ConversationMessage
 
@@ -122,14 +123,14 @@ def test_hotkey_window_defers_show_until_ocr_context_is_ready(monkeypatch) -> No
 
     monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
 
-    main_window_module.MainWindow._queue_hotkey_presentation(window)
+    main_window_module.MainWindow._queue_hotkey_presentation(window, PromptMode.DEFINITION)
     assert window._hotkey_pending is True
     assert window.show_calls == 0
     assert scheduled == []
 
     main_window_module.MainWindow._maybe_present_for_hotkey(
         window,
-        ConversationMessage(role="user", content="captured text"),
+        ConversationMessage(role="user", content="captured text", mode=PromptMode.DEFINITION.value),
     )
 
     assert window.show_calls == 0
@@ -138,10 +139,57 @@ def test_hotkey_window_defers_show_until_ocr_context_is_ready(monkeypatch) -> No
 
     main_window_module.MainWindow._maybe_present_for_hotkey(
         window,
-        ConversationMessage(role="user", content="captured text", screen_context="OCR context"),
+        ConversationMessage(role="user", content="captured text", mode=PromptMode.DEFINITION.value, screen_context="OCR context"),
     )
 
     assert window.show_calls == 1
+    assert window.present_calls == 1
+    assert window._hotkey_pending is False
+
+
+def test_hotkey_window_schedules_non_definition_modes_even_when_ocr_enabled(monkeypatch) -> None:
+    class DummyController:
+        screen_ocr_enabled = True
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._controller = DummyController()
+            self._hotkey_pending = False
+            self.visible = True
+            self.show_calls = 0
+            self.present_calls = 0
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def _show_for_hotkey(self) -> None:
+            self.show_calls += 1
+            self.visible = True
+
+        def _focus_for_hotkey(self) -> None:
+            if not self.visible:
+                self._show_for_hotkey()
+            self.present_calls += 1
+
+    window = DummyWindow()
+
+    scheduled: list[int] = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled.append(delay_ms)
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
+    main_window_module.MainWindow._queue_hotkey_presentation(window, PromptMode.EXPLAIN)
+    assert window._hotkey_pending is True
+    assert window.show_calls == 0
+    assert scheduled == [main_window_module.MainWindow.HOTKEY_PRESENTATION_DELAY_MS]
+
+    main_window_module.MainWindow._maybe_present_for_hotkey(
+        window,
+        ConversationMessage(role="user", content="captured text", mode=PromptMode.EXPLAIN.value),
+    )
+
     assert window.present_calls == 1
     assert window._hotkey_pending is False
 

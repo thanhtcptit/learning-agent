@@ -165,7 +165,31 @@ def test_handle_hotkey_truncates_session_title_from_long_selection(monkeypatch) 
     assert controller.current_session.title == "Summary: " + ("x" * 45) + "..."
 
 
-def test_handle_hotkey_includes_screen_ocr_context_when_enabled(monkeypatch) -> None:
+def test_handle_hotkey_includes_screen_ocr_context_for_definition_mode(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+
+    provider = FakeProvider()
+    clipboard = FakeClipboardService("Highlighted text")
+    screen_ocr = FakeScreenOcrService("Toolbar label: Linear algebra")
+    controller = AppController(
+        provider,
+        clipboard_service=clipboard,
+        screen_ocr_service=screen_ocr,
+        screen_ocr_enabled=True,
+    )
+
+    controller.handle_hotkey(PromptMode.DEFINITION)
+
+    assert clipboard.capture_calls == 1
+    assert screen_ocr.capture_calls == ["Highlighted text"]
+    assert controller.current_session.messages[0].screen_context == "Toolbar label: Linear algebra"
+    user_prompt = provider.requests[0][0][-1].content
+    assert "Screen OCR context from the current screen" in user_prompt
+    assert "Toolbar label: Linear algebra" in user_prompt
+    assert user_prompt.endswith("Define the following word or term:\n\nHighlighted text")
+
+
+def test_handle_hotkey_skips_screen_ocr_for_explain_mode(monkeypatch) -> None:
     monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
 
     provider = FakeProvider()
@@ -181,43 +205,14 @@ def test_handle_hotkey_includes_screen_ocr_context_when_enabled(monkeypatch) -> 
     controller.handle_hotkey(PromptMode.EXPLAIN)
 
     assert clipboard.capture_calls == 1
-    assert screen_ocr.capture_calls == ["Highlighted text"]
-    assert controller.current_session.messages[0].screen_context == "Toolbar label: Linear algebra"
+    assert screen_ocr.capture_calls == []
+    assert controller.current_session.messages[0].screen_context == ""
     user_prompt = provider.requests[0][0][-1].content
-    assert "Screen OCR context from the current screen" in user_prompt
-    assert "Toolbar label: Linear algebra" in user_prompt
+    assert "Screen OCR context from the current screen" not in user_prompt
     assert user_prompt.endswith("Explain the following text:\n\nHighlighted text")
 
 
-def test_handle_hotkey_emits_user_message_before_screen_ocr_starts(monkeypatch) -> None:
-    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
-
-    provider = FakeProvider()
-    clipboard = FakeClipboardService("Highlighted text")
-    screen_ocr = FakeScreenOcrService("Toolbar label: Linear algebra")
-    controller = AppController(
-        provider,
-        clipboard_service=clipboard,
-        screen_ocr_service=screen_ocr,
-        screen_ocr_enabled=True,
-    )
-
-    observed_message_states: list[tuple[str, str, list[str | None]]] = []
-
-    def record_message(message) -> None:
-        observed_message_states.append((message.role, message.content, list(screen_ocr.capture_calls)))
-
-    controller.message_upserted.connect(record_message)
-
-    controller.handle_hotkey(PromptMode.EXPLAIN)
-
-    assert observed_message_states[0][0] == "user"
-    assert observed_message_states[0][2] == []
-    assert observed_message_states[1][0] == "user"
-    assert observed_message_states[1][2] == ["Highlighted text"]
-
-
-def test_handle_hotkey_continues_when_screen_ocr_fails(monkeypatch) -> None:
+def test_handle_hotkey_skips_screen_ocr_for_summary_mode(monkeypatch) -> None:
     monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
 
     provider = FakeProvider()
@@ -233,7 +228,7 @@ def test_handle_hotkey_continues_when_screen_ocr_fails(monkeypatch) -> None:
     controller.handle_hotkey(PromptMode.SUMMARY)
 
     assert clipboard.capture_calls == 1
-    assert screen_ocr.capture_calls == ["Highlighted text"]
+    assert screen_ocr.capture_calls == []
     assert controller.current_session.messages[0].screen_context == ""
     user_prompt = provider.requests[0][0][-1].content
     assert "Screen OCR context from the current screen" not in user_prompt

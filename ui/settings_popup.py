@@ -90,11 +90,11 @@ class SettingsPopup(QDialog):
         self.screen_ocr_checkbox = QCheckBox("Enable screen OCR context")
         self.screen_ocr_checkbox.setObjectName("PopupScreenOcrToggle")
         self.screen_ocr_checkbox.setToolTip(
-            "Capture the current monitor and use its text as transient context when a mode hotkey is pressed."
+            "Capture the current monitor and use its text as transient context when the Definition hotkey is pressed."
         )
 
         self.screen_ocr_hint = QLabel(
-            "Useful when the selected text depends on nearby labels, code, tables, or other surrounding content."
+            "Useful for Definition mode when the selected text depends on nearby labels, code, tables, or other surrounding content."
         )
         self.screen_ocr_hint.setObjectName("PopupHint")
         self.screen_ocr_hint.setWordWrap(True)
