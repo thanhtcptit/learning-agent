@@ -72,8 +72,10 @@ def test_screen_ocr_service_captures_monitor_under_cursor_and_extracts_text(monk
 
 
 def test_screen_ocr_service_filters_to_relevant_text_when_selection_is_provided(monkeypatch) -> None:
+    captured: dict[str, object] = {"ocr_inputs": []}
+
     class FakeShot:
-        rgb = b"fake-rgb"
+        rgb = b"\x00" * (100 * 100 * 3)
         size = (100, 100)
 
     class FakeMssContext:
@@ -94,11 +96,21 @@ def test_screen_ocr_service_filters_to_relevant_text_when_selection_is_provided(
             return None
 
         def __call__(self, img_content, **kwargs):
+            captured["ocr_inputs"].append(img_content)
+            if img_content == b"full-png":
+                return (
+                    [
+                        [[[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [0.0, 10.0]], "Noise header", "0.91"],
+                        [[[0.0, 20.0], [50.0, 20.0], [50.0, 30.0], [0.0, 30.0]], "Linear algebra", "0.99"],
+                        [[[0.0, 40.0], [70.0, 40.0], [70.0, 50.0], [0.0, 50.0]], "Vector spaces and matrices", "0.97"],
+                    ],
+                    [0.1, 0.2, 0.3],
+                )
+
             return (
                 [
-                    [[[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [0.0, 10.0]], "Noise header", "0.91"],
-                    [[[0.0, 20.0], [50.0, 20.0], [50.0, 30.0], [0.0, 30.0]], "Linear algebra", "0.99"],
-                    [[[0.0, 40.0], [70.0, 40.0], [70.0, 50.0], [0.0, 50.0]], "Vector spaces and matrices", "0.97"],
+                    [[[0.0, 0.0], [50.0, 0.0], [50.0, 10.0], [0.0, 10.0]], "Linear algebra", "0.99"],
+                    [[[0.0, 20.0], [70.0, 20.0], [70.0, 30.0], [0.0, 30.0]], "Vector spaces and matrices", "0.97"],
                 ],
                 [0.1, 0.2, 0.3],
             )
@@ -107,7 +119,7 @@ def test_screen_ocr_service_filters_to_relevant_text_when_selection_is_provided(
     fake_mss_module.mss = lambda: FakeMssContext()
 
     fake_tools_module = types.ModuleType("mss.tools")
-    fake_tools_module.to_png = lambda data, size: b"png-bytes"
+    fake_tools_module.to_png = lambda data, size: b"full-png" if size == (100, 100) else b"crop-png"
 
     fake_rapidocr_module = types.ModuleType("rapidocr_onnxruntime")
     fake_rapidocr_module.RapidOCR = FakeRapidOCR
@@ -121,3 +133,4 @@ def test_screen_ocr_service_filters_to_relevant_text_when_selection_is_provided(
     text = service.capture_screen_text("linear algebra")
 
     assert text == "Linear algebra"
+    assert captured["ocr_inputs"] == [b"full-png", b"crop-png"]

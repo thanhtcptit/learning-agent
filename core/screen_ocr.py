@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import re
 import os
 from ctypes import wintypes
@@ -10,10 +11,35 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class _CapturedScreen:
+    rgb: bytes
+    width: int
+    height: int
+
+
+@dataclass(frozen=True)
+class _ScreenRegion:
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    @property
+    def width(self) -> int:
+        return self.right - self.left
+
+    @property
+    def height(self) -> int:
+        return self.bottom - self.top
+
+
+@dataclass(frozen=True)
 class _OcrBlock:
     text: str
     top: float
     left: float
+    right: float
+    bottom: float
     score: float
 
 
@@ -25,15 +51,36 @@ class ScreenOcrService:
         if os.name != "nt":
             raise RuntimeError("Screen OCR is only supported on Windows.")
 
-        image_bytes = self._capture_screen_png_bytes()
-        if not image_bytes:
+        capture = self._capture_screen()
+        if not capture.rgb or capture.width <= 0 or capture.height <= 0:
             return ""
 
         engine = self._ensure_engine()
-        result = engine(image_bytes)
-        blocks = self._extract_blocks(result)
+        blocks = self._run_ocr(engine, capture.rgb, capture.width, capture.height)
         if selection_text is not None and selection_text.strip():
-            blocks = self._filter_relevant_blocks(blocks, selection_text)
+            focus_block = self._find_focus_block(blocks, selection_text)
+            if focus_block is None:
+                return ""
+
+            focus_blocks = self._collect_line_blocks(blocks, focus_block)
+            region = self._build_region_from_blocks(focus_blocks, capture.width, capture.height)
+            if region is not None and (region.width < capture.width or region.height < capture.height):
+                cropped_rgb, cropped_width, cropped_height = self._crop_rgb_bytes(
+                    capture.rgb,
+                    capture.width,
+                    capture.height,
+                    region,
+                )
+                if cropped_rgb and cropped_width > 0 and cropped_height > 0:
+                    cropped_blocks = self._run_ocr(engine, cropped_rgb, cropped_width, cropped_height)
+                    if cropped_blocks:
+                        cropped_focus_block = self._find_focus_block(cropped_blocks, selection_text)
+                        if cropped_focus_block is not None:
+                            cropped_focus_blocks = self._collect_line_blocks(cropped_blocks, cropped_focus_block)
+                            if cropped_focus_blocks:
+                                return self._join_blocks(cropped_focus_blocks)
+
+            return self._join_blocks(focus_blocks)
         return self._join_blocks(blocks)
 
     def _ensure_engine(self) -> Any:
@@ -48,18 +95,33 @@ class ScreenOcrService:
         self._engine = RapidOCR(print_verbose=False)
         return self._engine
 
-    def _capture_screen_png_bytes(self) -> bytes:
+    def _capture_screen(self) -> _CapturedScreen:
         try:
             from mss import mss
-            from mss.tools import to_png
         except ImportError as exc:  # pragma: no cover - dependency availability is validated at runtime
             raise RuntimeError("Screen OCR requires mss.") from exc
 
         with mss() as screen_source:
             monitor = self._select_monitor(screen_source.monitors)
             screenshot = screen_source.grab(monitor)
-            png_bytes = to_png(screenshot.rgb, screenshot.size)
-        return png_bytes or b""
+        width = int(screenshot.size[0])
+        height = int(screenshot.size[1])
+        return _CapturedScreen(rgb=screenshot.rgb or b"", width=width, height=height)
+
+    def _run_ocr(self, engine: Any, rgb_bytes: bytes, width: int, height: int) -> list[_OcrBlock]:
+        if not rgb_bytes or width <= 0 or height <= 0:
+            return []
+
+        try:
+            from mss.tools import to_png
+        except ImportError as exc:  # pragma: no cover - dependency availability is validated at runtime
+            raise RuntimeError("Screen OCR requires mss.") from exc
+
+        png_bytes = to_png(rgb_bytes, (width, height))
+        if not png_bytes:
+            return []
+
+        return self._extract_blocks(engine(png_bytes))
 
     def _select_monitor(self, monitors: list[dict[str, int]]) -> dict[str, int]:
         if not monitors:
@@ -111,11 +173,11 @@ class ScreenOcrService:
             return None
 
         bbox = item[0]
-        left, top = self._extract_position(bbox)
+        left, top, right, bottom = self._extract_bounds(bbox)
         score = self._extract_score(item)
-        return _OcrBlock(text=text, top=top, left=left, score=score)
+        return _OcrBlock(text=text, top=top, left=left, right=right, bottom=bottom, score=score)
 
-    def _extract_position(self, bbox: object) -> tuple[float, float]:
+    def _extract_bounds(self, bbox: object) -> tuple[float, float, float, float]:
         points: list[tuple[float, float]] = []
 
         if isinstance(bbox, (list, tuple)):
@@ -130,11 +192,13 @@ class ScreenOcrService:
                 points.append((x_value, y_value))
 
         if not points:
-            return 0.0, 0.0
+            return 0.0, 0.0, 0.0, 0.0
 
         left = min(point[0] for point in points)
         top = min(point[1] for point in points)
-        return left, top
+        right = max(point[0] for point in points)
+        bottom = max(point[1] for point in points)
+        return left, top, right, bottom
 
     def _extract_score(self, item: object) -> float:
         if isinstance(item, (list, tuple)) and len(item) >= 3:
@@ -171,6 +235,104 @@ class ScreenOcrService:
             return [best_block]
 
         return []
+
+    def _find_focus_block(self, blocks: list[_OcrBlock], selection_text: str) -> _OcrBlock | None:
+        normalized_anchor = self._normalize_for_match(selection_text)
+        if not normalized_anchor:
+            return None
+
+        scored_blocks: list[tuple[float, int, _OcrBlock]] = []
+        for index, block in enumerate(blocks):
+            relevance = self._relevance_score(normalized_anchor, block.text)
+            if relevance > 0.0:
+                scored_blocks.append((relevance, index, block))
+
+        if not scored_blocks:
+            return None
+
+        best_score = max(score for score, _, _ in scored_blocks)
+        if best_score < 0.25:
+            return None
+
+        return max(scored_blocks, key=lambda item: (item[0], -item[1]))[2]
+
+    def _collect_line_blocks(self, blocks: list[_OcrBlock], focus_block: _OcrBlock) -> list[_OcrBlock]:
+        if not blocks:
+            return []
+
+        focus_center_y = (focus_block.top + focus_block.bottom) / 2.0
+        focus_height = max(focus_block.bottom - focus_block.top, 1.0)
+        line_tolerance = max(8.0, focus_height * 0.75)
+
+        line_blocks = [
+            block
+            for block in blocks
+            if abs(((block.top + block.bottom) / 2.0) - focus_center_y) <= line_tolerance
+        ]
+
+        if not line_blocks:
+            return [focus_block]
+
+        return sorted(line_blocks, key=lambda block: (block.top, block.left, block.text.lower()))
+
+    def _build_region_from_blocks(self, blocks: list[_OcrBlock], image_width: int, image_height: int) -> _ScreenRegion | None:
+        if not blocks or image_width <= 0 or image_height <= 0:
+            return None
+
+        min_left = min(block.left for block in blocks)
+        min_top = min(block.top for block in blocks)
+        max_right = max(block.right for block in blocks)
+        max_bottom = max(block.bottom for block in blocks)
+
+        content_width = max(max_right - min_left, 1.0)
+        content_height = max(max_bottom - min_top, 1.0)
+
+        padding_x = max(10, int(content_width * 0.08))
+        padding_y = max(10, int(content_height * 0.25))
+
+        left = max(0, math.floor(min_left - padding_x))
+        top = max(0, math.floor(min_top - padding_y))
+        right = min(image_width, math.ceil(max_right + padding_x))
+        bottom = min(image_height, math.ceil(max_bottom + padding_y))
+
+        if right <= left or bottom <= top:
+            return None
+
+        return _ScreenRegion(left=left, top=top, right=right, bottom=bottom)
+
+    def _crop_rgb_bytes(
+        self,
+        rgb_bytes: bytes,
+        image_width: int,
+        image_height: int,
+        region: _ScreenRegion,
+    ) -> tuple[bytes, int, int]:
+        if not rgb_bytes or image_width <= 0 or image_height <= 0:
+            return b"", 0, 0
+
+        left = max(0, min(region.left, image_width - 1))
+        top = max(0, min(region.top, image_height - 1))
+        right = max(left + 1, min(region.right, image_width))
+        bottom = max(top + 1, min(region.bottom, image_height))
+
+        crop_width = right - left
+        crop_height = bottom - top
+        if crop_width <= 0 or crop_height <= 0:
+            return b"", 0, 0
+
+        bytes_per_pixel = 3
+        row_stride = image_width * bytes_per_pixel
+        crop_row_size = crop_width * bytes_per_pixel
+        left_offset = left * bytes_per_pixel
+        source = memoryview(rgb_bytes)
+
+        cropped_rows: list[bytes] = []
+        for row in range(top, bottom):
+            row_start = row * row_stride + left_offset
+            row_end = row_start + crop_row_size
+            cropped_rows.append(source[row_start:row_end].tobytes())
+
+        return b"".join(cropped_rows), crop_width, crop_height
 
     def _relevance_score(self, anchor: str, candidate: str) -> float:
         normalized_candidate = self._normalize_for_match(candidate)

@@ -140,7 +140,7 @@ class AppController(QObject):
         self._provider_config = provider_config
         self.provider_config_changed.emit(provider_config)
         self.status_changed.emit(
-            f"LLM set to {provider_config.name or provider_config.display_name or provider_config.model}"
+            f"LLM set to {provider_config.name or provider_config.display_name or provider_config.model} ({provider_config.provider})"
         )
 
     def select_session(self, session_id: str) -> ConversationSession:
@@ -198,6 +198,7 @@ class AppController(QObject):
                     text,
                     mode=message_mode,
                     screen_context="",
+                    title_prefix=mode.label,
                 )
                 self.message_upserted.emit(user_message)
                 self._emit_sessions_changed()

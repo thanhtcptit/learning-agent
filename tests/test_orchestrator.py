@@ -146,10 +146,23 @@ def test_handle_hotkey_captures_clipboard_text(monkeypatch) -> None:
     assert session.messages[0].role == "user"
     assert session.messages[0].content == "Selection from another app"
     assert session.messages[0].screen_context == ""
+    assert session.title == "Definition: Selection from another app"
     assert session.messages[1].content == "Hello"
     assert provider.requests[0][0][0].content.startswith("You are a dictionary and language-learning assistant.")
     assert "Vietnamese" in provider.requests[0][0][0].content
     assert provider.requests[0][0][-1].content == "Define the following word or term:\n\nSelection from another app"
+
+
+def test_handle_hotkey_truncates_session_title_from_long_selection(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+
+    provider = FakeProvider()
+    clipboard = FakeClipboardService("x" * 100)
+    controller = AppController(provider, clipboard_service=clipboard)
+
+    controller.handle_hotkey(PromptMode.SUMMARY)
+
+    assert controller.current_session.title == "Summary: " + ("x" * 45) + "..."
 
 
 def test_handle_hotkey_includes_screen_ocr_context_when_enabled(monkeypatch) -> None:
@@ -252,16 +265,19 @@ def test_set_provider_switches_active_config() -> None:
     next_config = ProviderConfig(provider="openai", model="gpt-4.1", family="gpt", name="gpt-4.1")
 
     created_configs = []
+    statuses: list[str] = []
 
     def factory(config: ProviderConfig) -> FakeProvider:
         created_configs.append(config)
         return FakeProvider()
 
     controller = AppController(FakeProvider(), provider_config=initial_config, provider_factory=factory)
+    controller.status_changed.connect(statuses.append)
     controller.set_provider(next_config)
 
     assert controller.provider_config == next_config
     assert created_configs == [next_config]
+    assert statuses[-1] == "LLM set to gpt-4.1 (openai)"
 
 
 def test_toggle_target_language_switches_between_preferred_and_english() -> None:

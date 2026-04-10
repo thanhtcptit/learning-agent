@@ -1,7 +1,7 @@
 [
     {
         "provider": "openrouter",
-        "model": "qwen/qwen3.6-plus:free",
+        "model": "google/gemma-3-27b-it:free",
         "is_free": true
     }
 ]

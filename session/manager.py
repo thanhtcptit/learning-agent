@@ -24,6 +24,14 @@ def _summarize_title(text: str, limit: int = 48) -> str:
     return f"{normalized[: limit - 3].rstrip()}..."
 
 
+def _format_title(title_prefix: str | None, text: str, limit: int = 48) -> str:
+    summarized_text = _summarize_title(text, limit)
+    cleaned_prefix = (title_prefix or "").strip()
+    if not cleaned_prefix:
+        return summarized_text
+    return f"{cleaned_prefix}: {summarized_text}"
+
+
 def _serialize_datetime(value: datetime) -> str:
     return value.isoformat()
 
@@ -124,6 +132,7 @@ class ConversationSession:
         mode: str | None = None,
         screen_context: str | None = None,
         include_in_context: bool = True,
+        title_prefix: str | None = None,
         message_id: str | None = None,
     ) -> ConversationMessage:
         cleaned_screen_context = (screen_context or "").strip()
@@ -139,7 +148,7 @@ class ConversationSession:
         self.updated_at = _utcnow()
 
         if role == "user" and self.title == "New Session" and content.strip():
-            self.title = _summarize_title(content)
+            self.title = _format_title(title_prefix, content)
 
         return message
 
@@ -255,6 +264,7 @@ class SessionManager:
         mode: str | None = None,
         screen_context: str | None = None,
         include_in_context: bool = True,
+        title_prefix: str | None = None,
     ) -> ConversationMessage:
         with self._lock:
             return self.current_session().append_message(
@@ -263,6 +273,7 @@ class SessionManager:
                 mode=mode,
                 screen_context=screen_context,
                 include_in_context=include_in_context,
+                title_prefix=title_prefix,
             )
 
     def set_message_include_in_context(self, message_id: str, include_in_context: bool) -> ConversationMessage:

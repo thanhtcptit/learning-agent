@@ -20,8 +20,8 @@ The goal is to create a **system-wide learning copilot** that works across all a
 * Return response via a chat window UI
 * Session management (reuse last session, multiple sessions support, saved locally between runs)
 * Display conversation history
-* Settings popup (cascading LLM name/provider selection, language preference, modes, session switching, delete session, hotkey toggle, screen OCR toggle)
-* Remembers the last selected LLM/provider across restarts
+* Settings popup (single LLM selector with provider-qualified names, language preference, session switching, delete session, hotkey toggle, screen OCR toggle)
+* Remembers the last selected LLM configuration across restarts
 * OpenAI Responses API support for web search and reasoning-heavy models
 * Streaming responses (real-time token output)
 
@@ -64,7 +64,7 @@ uv sync
 
    * Simulates `Ctrl + C`
    * Reads clipboard content
-    * If enabled, captures the current monitor and extracts on-screen text with OCR
+    * If enabled, captures the current monitor, finds the ROI around the highlighted text, and OCRs that cropped area
   * If the selected provider is OpenAI, it can use web search and reasoning before answering
    * Builds a prompt based on mode
    * Sends request to LLM
@@ -174,7 +174,7 @@ The build produces `dist\learning-agent.exe`. Keep API keys external by placing 
 * Press the settings icon to open the popup and disable hotkeys if needed
 * If OCR is enabled, click the OCR context toggle on a user query to reveal the captured screen text above that query
 
-The chosen language defaults to Vietnamese and is saved between runs. Screen OCR is off by default and can be enabled from the settings popup.
+The chosen language defaults to Vietnamese and is saved between runs. Screen OCR is off by default and can be enabled from the settings popup. When enabled, the app uses the selected text to localize a smaller OCR region before scanning it.
 
 ---
 

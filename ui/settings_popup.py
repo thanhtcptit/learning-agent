@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from core.config import LLMModelEntry, ProviderConfig, discover_llm_catalog
 from core.hotkey import GlobalHotkeyListener
 from core.orchestrator import AppController
-from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode
+from prompts.templates import DEFAULT_TARGET_LANGUAGE
 
 
 class SettingsPopup(QDialog):
@@ -74,30 +74,15 @@ class SettingsPopup(QDialog):
         section_title = QLabel("LLM")
         section_title.setObjectName("PopupSectionTitle")
 
-        self.model_label = QLabel("LLM name")
+        self.model_label = QLabel("Model")
         self.model_label.setObjectName("PopupFieldLabel")
         self.model_combo = QComboBox()
         self.model_combo.setObjectName("PopupModelCombo")
-
-        self.provider_row = QWidget()
-        self.provider_row.setObjectName("PopupProviderRow")
-        provider_row_layout = QHBoxLayout(self.provider_row)
-        provider_row_layout.setContentsMargins(0, 0, 0, 0)
-        provider_row_layout.setSpacing(8)
-        self.provider_label = QLabel("Provider")
-        self.provider_label.setObjectName("PopupFieldLabel")
-        self.provider_combo = QComboBox()
-        self.provider_combo.setObjectName("PopupProviderCombo")
-        provider_row_layout.addWidget(self.provider_label)
-        provider_row_layout.addWidget(self.provider_combo, 1)
-        self.provider_row.setVisible(False)
-        self.provider_row.setEnabled(False)
 
         llm_layout = QVBoxLayout()
         llm_layout.setSpacing(6)
         llm_layout.addWidget(self.model_label)
         llm_layout.addWidget(self.model_combo)
-        llm_layout.addWidget(self.provider_row)
 
         self.hotkey_checkbox = QCheckBox("Enable global hotkeys")
         self.hotkey_checkbox.setObjectName("PopupHotkeyToggle")
@@ -129,10 +114,6 @@ class SettingsPopup(QDialog):
         session_row.addWidget(self.new_session_button)
         session_row.addWidget(self.delete_session_button)
 
-        self.mode_combo = QComboBox()
-        for mode in PromptMode:
-            self.mode_combo.addItem(mode.label, mode)
-
         self.language_input = QLineEdit()
         self.language_input.setPlaceholderText(DEFAULT_TARGET_LANGUAGE)
 
@@ -151,7 +132,6 @@ class SettingsPopup(QDialog):
         card_layout.addWidget(self.screen_ocr_checkbox)
         card_layout.addWidget(self.screen_ocr_hint)
         card_layout.addLayout(session_row)
-        card_layout.addWidget(self.mode_combo)
         card_layout.addWidget(self.language_input)
 
         footer_layout = QHBoxLayout()
@@ -196,7 +176,7 @@ class SettingsPopup(QDialog):
                 color: #64748b;
                 font-size: 11px;
             }
-            QComboBox#PopupModelCombo, QComboBox#PopupProviderCombo {
+            QComboBox#PopupModelCombo {
                 min-width: 0px;
             }
             QCheckBox#PopupHotkeyToggle, QCheckBox#PopupScreenOcrToggle {
@@ -259,6 +239,7 @@ class SettingsPopup(QDialog):
         self._controller.sessions_changed.connect(self._sync_sessions)
         self._controller.current_session_changed.connect(self._sync_sessions)
         self._controller.current_session_changed.connect(self._sync_llm_selection)
+        self._controller.provider_config_changed.connect(self._sync_llm_selection)
         self._controller.preferred_language_changed.connect(self._sync_language_input)
         self._controller.screen_ocr_enabled_changed.connect(self._sync_screen_ocr_toggle)
         self._controller.current_language_changed.connect(self._sync_current_language_status)
@@ -266,18 +247,15 @@ class SettingsPopup(QDialog):
         self._hotkey_listener.status_changed.connect(self._set_status)
 
         self.model_combo.currentIndexChanged.connect(self._on_model_selected)
-        self.provider_combo.currentIndexChanged.connect(self._on_provider_selected)
         self.hotkey_checkbox.toggled.connect(self._on_hotkey_toggled)
         self.screen_ocr_checkbox.toggled.connect(self._on_screen_ocr_toggled)
         self.session_combo.currentIndexChanged.connect(self._on_session_selected)
         self.new_session_button.clicked.connect(self._on_new_session)
         self.delete_session_button.clicked.connect(self._on_delete_session)
-        self.mode_combo.currentIndexChanged.connect(self._on_mode_selected)
         self.language_input.editingFinished.connect(self._on_language_changed)
 
     def _apply_state(self) -> None:
         self._sync_sessions(self._controller.sessions)
-        self.mode_combo.setCurrentIndex(self.mode_combo.findData(self._controller.default_mode))
         self.language_input.setText(self._controller.preferred_language)
         self._sync_current_language_status(self._controller.target_language)
         self.hotkey_checkbox.blockSignals(True)
@@ -301,10 +279,6 @@ class SettingsPopup(QDialog):
             if current_index >= 0:
                 self.session_combo.setCurrentIndex(current_index)
             self.session_combo.blockSignals(False)
-
-            self.mode_combo.blockSignals(True)
-            self.mode_combo.setCurrentIndex(self.mode_combo.findData(self._controller.default_mode))
-            self.mode_combo.blockSignals(False)
 
             self.language_input.setText(self._controller.preferred_language)
         finally:
@@ -338,29 +312,14 @@ class SettingsPopup(QDialog):
     def _refresh_catalog(self) -> None:
         self._llm_entries = discover_llm_catalog()
 
-    def _find_entry_for_config(self, provider_config: ProviderConfig) -> LLMModelEntry | None:
+    def _model_options(self) -> list[tuple[str, ProviderConfig]]:
+        options: list[tuple[str, ProviderConfig]] = []
         for entry in self._llm_entries:
-            if entry.family == provider_config.family and entry.name == provider_config.name:
-                return entry
+            for provider_config in entry.providers:
+                options.append((f"{entry.display_name} ({provider_config.provider})", provider_config))
+        return options
 
-        for entry in self._llm_entries:
-            if entry.name == provider_config.name:
-                return entry
-
-        if provider_config.display_name:
-            for entry in self._llm_entries:
-                if entry.display_name == provider_config.display_name:
-                    return entry
-
-        return None
-
-    def _sync_llm_selection(
-        self,
-        selected_config: object | None = None,
-        *,
-        selected_model: LLMModelEntry | None = None,
-        selected_provider_name: str | None = None,
-    ) -> None:
+    def _sync_llm_selection(self, selected_config: object | None = None) -> None:
         if self._updating:
             return
 
@@ -373,99 +332,54 @@ class SettingsPopup(QDialog):
                 self.model_combo.addItem("No models found", None)
                 self.model_combo.setEnabled(False)
                 self.model_combo.blockSignals(False)
-
-                self.provider_combo.blockSignals(True)
-                self.provider_combo.clear()
-                self.provider_combo.addItem("No providers found", None)
-                self.provider_combo.setEnabled(False)
-                self.provider_combo.blockSignals(False)
-
-                self.provider_row.setVisible(False)
                 self._set_status("No LLM configs found")
                 return
 
-            provider_config = selected_config if isinstance(selected_config, ProviderConfig) else None
-            resolved_model = None
-            if selected_model is not None:
-                resolved_model = next((entry for entry in self._llm_entries if entry == selected_model), None)
-            if resolved_model is None and provider_config is not None:
-                resolved_model = self._find_entry_for_config(provider_config)
-            if resolved_model is None:
-                current_model = self._selected_model()
-                if current_model is not None:
-                    resolved_model = next((entry for entry in self._llm_entries if entry == current_model), None)
-            if resolved_model is None:
-                resolved_model = self._llm_entries[0]
-
-            provider_options = list(resolved_model.providers)
-            if not provider_options:
+            model_options = self._model_options()
+            if not model_options:
+                self.model_combo.blockSignals(True)
+                self.model_combo.clear()
+                self.model_combo.addItem("No providers found", None)
                 self.model_combo.setEnabled(False)
-                self.provider_combo.setEnabled(False)
-                self.provider_row.setVisible(False)
-                self._set_status("Selected LLM has no providers")
+                self.model_combo.blockSignals(False)
+                self._set_status("Selected LLMs have no providers")
                 return
 
-            if selected_provider_name is None:
-                selected_provider_name = self._selected_provider_name()
-            if selected_provider_name is None and provider_config is not None:
-                selected_provider_name = provider_config.provider
-
-            provider_names = {option.provider for option in provider_options}
-            if selected_provider_name not in provider_names:
-                selected_provider_name = provider_options[0].provider
+            resolved_provider_config = None
+            if isinstance(selected_config, ProviderConfig):
+                resolved_provider_config = next(
+                    (provider_config for _, provider_config in model_options if provider_config == selected_config),
+                    None,
+                )
+            if resolved_provider_config is None:
+                current_provider_config = self._selected_provider_config()
+                if current_provider_config is not None:
+                    resolved_provider_config = next(
+                        (provider_config for _, provider_config in model_options if provider_config == current_provider_config),
+                        None,
+                    )
+            if resolved_provider_config is None:
+                resolved_provider_config = model_options[0][1]
 
             self.model_combo.blockSignals(True)
             self.model_combo.clear()
-            for entry in self._llm_entries:
-                self.model_combo.addItem(entry.display_name, entry)
+            for label, provider_config in model_options:
+                self.model_combo.addItem(label, provider_config)
             self.model_combo.setEnabled(True)
-            model_index = self.model_combo.findData(resolved_model)
+            model_index = self.model_combo.findData(resolved_provider_config)
             if model_index < 0:
                 model_index = 0
             self.model_combo.setCurrentIndex(model_index)
             self.model_combo.blockSignals(False)
-
-            self.provider_combo.blockSignals(True)
-            self.provider_combo.clear()
-            for option in provider_options:
-                self.provider_combo.addItem(option.provider, option)
-            provider_index = next(
-                (index for index, option in enumerate(provider_options) if option.provider == selected_provider_name),
-                0,
-            )
-            self.provider_combo.setCurrentIndex(provider_index)
-            self.provider_combo.setEnabled(True)
-            self.provider_combo.blockSignals(False)
-
-            self.provider_row.setVisible(True)
-            self.provider_row.setEnabled(True)
         finally:
             self._updating = False
-
-    def _selected_mode(self) -> PromptMode:
-        mode = self.mode_combo.currentData()
-        if isinstance(mode, PromptMode):
-            return mode
-        return self._controller.default_mode
 
     def _selected_language(self) -> str:
         language = self.language_input.text().strip()
         return language or DEFAULT_TARGET_LANGUAGE
 
-    def _selected_model(self) -> LLMModelEntry | None:
-        model = self.model_combo.currentData()
-        if isinstance(model, LLMModelEntry):
-            return model
-        return None
-
-    def _selected_provider_name(self) -> str | None:
-        provider_config = self.provider_combo.currentData()
-        if isinstance(provider_config, ProviderConfig):
-            return provider_config.provider
-        return None
-
     def _selected_provider_config(self) -> ProviderConfig | None:
-        provider_config = self.provider_combo.currentData()
+        provider_config = self.model_combo.currentData()
         if isinstance(provider_config, ProviderConfig):
             return provider_config
         return None
@@ -485,15 +399,6 @@ class SettingsPopup(QDialog):
         if self._updating:
             return
 
-        self._sync_llm_selection(
-            selected_model=self._selected_model(),
-            selected_provider_name=self._selected_provider_name(),
-        )
-        self._apply_selected_provider()
-
-    def _on_provider_selected(self, _index: int) -> None:
-        if self._updating:
-            return
         self._apply_selected_provider()
 
     def _on_session_selected(self, _index: int) -> None:
@@ -516,11 +421,6 @@ class SettingsPopup(QDialog):
         session_id = self.session_combo.currentData()
         if isinstance(session_id, str) and session_id:
             self._controller.delete_session(session_id)
-
-    def _on_mode_selected(self, _index: int) -> None:
-        if self._updating:
-            return
-        self._controller.set_default_mode(self._selected_mode())
 
     def _on_language_changed(self) -> None:
         if self._updating:
