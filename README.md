@@ -8,6 +8,7 @@ This tool runs in the background and allows users to:
 * Press a keyboard shortcut
 * Instantly get an AI-generated explanation in a chat interface
 * Optionally scan the current screen with lightweight CPU OCR to add surrounding context for Definition mode
+* Record microphone input with a hotkey, transcribe it locally, and play back the reply with a local TTS voice model
 
 The goal is to create a **system-wide learning copilot** that works across all applications (browser, IDE, PDF reader, etc.).
 
@@ -64,11 +65,19 @@ uv sync
 
    * Simulates `Ctrl + C`
    * Reads clipboard content
-    * If enabled for Definition mode, captures the current monitor, finds the ROI around the highlighted text, and OCRs that cropped area
+  * If enabled for Definition mode, captures the current monitor, finds the ROI around the highlighted text, and OCRs that cropped area
   * If the selected provider is OpenAI, it can use web search and reasoning before answering
-   * Builds a prompt based on mode
-   * Sends request to LLM
+  * Builds a prompt based on mode
+  * Sends request to LLM
 4. Response is shown in the chat UI with streaming token updates
+
+Voice mode follows the same controller pipeline, but starts with microphone capture instead of clipboard selection:
+
+1. User presses `Alt + V`
+2. Program records microphone audio until 2 seconds of silence
+3. The audio is transcribed locally with the selected STT backend
+4. The transcript is sent to the selected LLM
+5. The response is synthesized locally with Chatterbox for non-Vietnamese speech or VieNeu for Vietnamese speech, then played back sentence by sentence so audio can start sooner
 
 ---
 
@@ -165,6 +174,7 @@ The build produces `dist\learning-agent.exe`. Keep API keys external by placing 
   * `Alt + D` → definition mode
   * `Alt + E` → explain mode
   * `Alt + S` → summary mode
+  * `Alt + V` → voice mode
   * `Alt + H` → hide or show the chat window
   * `Alt + L` → toggle between the chosen language and English
   * `Alt + X` → exit the program
@@ -175,6 +185,10 @@ The build produces `dist\learning-agent.exe`. Keep API keys external by placing 
 * If OCR is enabled, click the OCR context toggle on a user query to reveal the captured screen text above that query
 
 The chosen language defaults to Vietnamese and is saved between runs. Screen OCR is off by default and can be enabled from the settings popup. When enabled, the app uses the selected text to localize a smaller OCR region before scanning it, but only for Definition mode.
+
+Voice mode uses `sounddevice` for microphone capture, `faster-whisper` for the default STT path, `sherpa-onnx` for the Vietnamese Zipformer STT path, and Chatterbox for the default non-Vietnamese TTS path. For Vietnamese, the app now defaults to `hynt/Zipformer-30M-RNNT-6000h` for STT and VieNeu TTS v1 for speech. The settings popup includes a VieNeu model dropdown with VieNeu TTS v1, VieNeu TTS 0.3B Q4 GGUF, and VieNeu TTS 0.3B. The voice preset dropdown refreshes when you switch engines and currently follows VieNeu's published preset catalog: Vinh, Binh, Tuyen, Doan, Ly, and Ngoc. The selected model and preset are saved between runs. The Vietnamese reply is fed to VieNeu sentence by sentence so playback can begin sooner. If you need to force a device override, prefer `cuda` or `cuda:0`; the TTS backends normalize `gpu` to CUDA when the installed PyTorch build exposes it. The current VieNeu models are loaded through the SDK's standard backend, which handles both transformer and GGUF backbones, and the codec path depends on `torchao` so the local VieNeu loader can initialize correctly. If the non-Vietnamese TTS model cannot be loaded, the app falls back to the local Windows speech engine so the response is still spoken. Chatterbox uses CUDA automatically when the installed PyTorch build exposes it.
+
+If you want to override the Vietnamese models, set `LEARNING_AGENT_VOICE_STT_VI_MODEL`, `LEARNING_AGENT_VOICE_TTS_VI_REPO_ID`, or `LEARNING_AGENT_VOICE_TTS_VI_VOICE_NAME` as needed. The app will use the Vietnamese engine when the selected language is Vietnamese and the default engines for other languages.
 
 ---
 

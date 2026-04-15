@@ -80,3 +80,17 @@ def build_chat_messages(text: str, target_language: str = DEFAULT_TARGET_LANGUAG
         LLMMessage(role="system", content=system_prompt),
         LLMMessage(role="user", content=text),
     ]
+
+
+def build_voice_messages(text: str, target_language: str = DEFAULT_TARGET_LANGUAGE) -> list[LLMMessage]:
+    system_prompt = (
+        "You are a voice assistant. Answer in "
+        f"{target_language} using plain natural speech that sounds good when spoken aloud. "
+        "Keep the reply short, warm, and conversational. Use complete sentences and avoid markdown, list markers, code blocks, tables, and other formatting symbols. "
+        "Do not use special characters or punctuation-heavy formatting. Return only the spoken answer."
+    )
+
+    return [
+        LLMMessage(role="system", content=system_prompt),
+        LLMMessage(role="user", content=text),
+    ]

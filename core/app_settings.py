@@ -6,6 +6,16 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from core.config import ProviderConfig
+from core.voice_catalog import (
+    DEFAULT_VIETNAMESE_STT_MODEL_ID,
+    DEFAULT_VIETNAMESE_TTS_MODEL_ID,
+    DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
+    VIETNAMESE_STT_MODEL_CHOICES,
+    VIETNAMESE_TTS_MODEL_CHOICES,
+    VIETNAMESE_TTS_VOICE_CHOICES,
+    resolve_voice_model_id,
+    resolve_vietnamese_tts_voice_name,
+)
 from prompts.templates import DEFAULT_TARGET_LANGUAGE
 
 
@@ -31,6 +41,9 @@ class AppSettings:
     preferred_language: str = DEFAULT_TARGET_LANGUAGE
     screen_ocr_enabled: bool = False
     selected_provider_config: ProviderConfig | None = None
+    voice_stt_model_id: str = DEFAULT_VIETNAMESE_STT_MODEL_ID
+    voice_tts_model_id: str = DEFAULT_VIETNAMESE_TTS_MODEL_ID
+    voice_tts_voice_name: str = DEFAULT_VIETNAMESE_TTS_VOICE_NAME
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "AppSettings":
@@ -46,6 +59,21 @@ class AppSettings:
             preferred_language=preferred_language or DEFAULT_TARGET_LANGUAGE,
             screen_ocr_enabled=_coerce_bool(payload.get("screen_ocr_enabled"), default=False),
             selected_provider_config=selected_provider_config,
+            voice_stt_model_id=resolve_voice_model_id(
+                str(payload.get("voice_stt_model_id") or "").strip() or None,
+                VIETNAMESE_STT_MODEL_CHOICES,
+                DEFAULT_VIETNAMESE_STT_MODEL_ID,
+            ),
+            voice_tts_model_id=resolve_voice_model_id(
+                str(payload.get("voice_tts_model_id") or "").strip() or None,
+                VIETNAMESE_TTS_MODEL_CHOICES,
+                DEFAULT_VIETNAMESE_TTS_MODEL_ID,
+            ),
+            voice_tts_voice_name=resolve_vietnamese_tts_voice_name(
+                str(payload.get("voice_tts_voice_name") or "").strip() or None,
+                VIETNAMESE_TTS_VOICE_CHOICES,
+                DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -53,6 +81,9 @@ class AppSettings:
             "preferred_language": self.preferred_language,
             "screen_ocr_enabled": self.screen_ocr_enabled,
             "selected_provider_config": self.selected_provider_config.to_dict() if self.selected_provider_config is not None else None,
+            "voice_stt_model_id": self.voice_stt_model_id,
+            "voice_tts_model_id": self.voice_tts_model_id,
+            "voice_tts_voice_name": self.voice_tts_voice_name,
         }
 
 

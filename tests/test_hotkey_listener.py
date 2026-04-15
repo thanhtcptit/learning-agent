@@ -8,6 +8,7 @@ from core.hotkey import (
     EXIT_HOTKEY_ACTION,
     TOGGLE_LANGUAGE_HOTKEY_ACTION,
     TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
+    VOICE_HOTKEY_ACTION,
     GlobalHotkeyListener,
 )
 
@@ -101,6 +102,7 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
     assert backend.hotkey_map["<alt>+d"] == PromptMode.DEFINITION
     assert backend.hotkey_map["<alt>+e"] == PromptMode.EXPLAIN
     assert backend.hotkey_map["<alt>+s"] == PromptMode.SUMMARY
+    assert backend.hotkey_map["<alt>+v"] == VOICE_HOTKEY_ACTION
     assert backend.hotkey_map["<alt>+h"] == TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION
     assert backend.hotkey_map["<alt>+l"] == TOGGLE_LANGUAGE_HOTKEY_ACTION
     assert backend.hotkey_map["<alt>+x"] == EXIT_HOTKEY_ACTION

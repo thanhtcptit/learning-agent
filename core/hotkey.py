@@ -20,6 +20,7 @@ _MOD_SHIFT = 0x0004
 _MOD_WIN = 0x0008
 
 EXIT_HOTKEY_ACTION = "exit"
+VOICE_HOTKEY_ACTION = "voice"
 TOGGLE_LANGUAGE_HOTKEY_ACTION = "toggle_language"
 TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION = "toggle_window_visibility"
 
@@ -244,6 +245,7 @@ class GlobalHotkeyListener(QObject):
                 "<alt>+d": PromptMode.DEFINITION,
                 "<alt>+e": PromptMode.EXPLAIN,
                 "<alt>+s": PromptMode.SUMMARY,
+                "<alt>+v": VOICE_HOTKEY_ACTION,
                 "<alt>+h": TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
                 "<alt>+l": TOGGLE_LANGUAGE_HOTKEY_ACTION,
                 "<alt>+x": EXIT_HOTKEY_ACTION,

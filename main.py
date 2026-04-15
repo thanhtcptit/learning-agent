@@ -20,10 +20,12 @@ from core.hotkey import (
     EXIT_HOTKEY_ACTION,
     TOGGLE_LANGUAGE_HOTKEY_ACTION,
     TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
+    VOICE_HOTKEY_ACTION,
     GlobalHotkeyListener,
 )
 from core.orchestrator import AppController
 from core.screen_ocr import ScreenOcrService
+from core.voice_services import build_default_voice_services
 from core.runtime_paths import get_runtime_file_path
 from prompts.templates import PromptMode
 from session.manager import SessionManager
@@ -48,6 +50,12 @@ class HotkeyActionRouter(QObject):
 
         if action == TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION:
             self._window.toggle_window_visibility()
+            return
+
+        if action == VOICE_HOTKEY_ACTION:
+            if not self._controller.is_busy and self._window.consume_new_session_request():
+                self._controller.create_session()
+            self._controller.handle_voice_hotkey()
             return
 
         if isinstance(action, PromptMode):
@@ -117,6 +125,11 @@ def main() -> int:
         return 1
 
     session_manager = _load_session_manager(session_state_path)
+    voice_recorder, stt_service, tts_service = build_default_voice_services(
+        voice_stt_model_id=app_settings.voice_stt_model_id,
+        voice_tts_model_id=app_settings.voice_tts_model_id,
+        voice_tts_voice_name=app_settings.voice_tts_voice_name,
+    )
 
     controller = AppController(
         provider,
@@ -126,6 +139,9 @@ def main() -> int:
         target_language=app_settings.preferred_language,
         screen_ocr_enabled=app_settings.screen_ocr_enabled,
         screen_ocr_service=ScreenOcrService(),
+        voice_recorder=voice_recorder,
+        stt_service=stt_service,
+        tts_service=tts_service,
         session_manager=session_manager,
     )
 
@@ -146,6 +162,9 @@ def main() -> int:
                     preferred_language=controller.preferred_language,
                     screen_ocr_enabled=controller.screen_ocr_enabled,
                     selected_provider_config=controller.provider_config,
+                    voice_stt_model_id=controller.voice_stt_model_id,
+                    voice_tts_model_id=controller.voice_tts_model_id,
+                    voice_tts_voice_name=controller.voice_tts_voice_name,
                 ),
             )
         except Exception as exc:  # noqa: BLE001 - settings persistence should not block exit
@@ -154,6 +173,9 @@ def main() -> int:
     controller.preferred_language_changed.connect(lambda _language: save_settings())
     controller.screen_ocr_enabled_changed.connect(lambda _enabled: save_settings())
     controller.provider_config_changed.connect(lambda _config: save_settings())
+    controller.voice_stt_model_changed.connect(lambda _model_id: save_settings())
+    controller.voice_tts_model_changed.connect(lambda _model_id: save_settings())
+    controller.voice_tts_voice_name_changed.connect(lambda _voice_name: save_settings())
 
     try:
         hotkey_listener.start()

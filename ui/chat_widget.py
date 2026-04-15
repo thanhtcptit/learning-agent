@@ -171,7 +171,7 @@ class ChatTranscript(QWidget):
 
     def _render_empty_state(self) -> QWidget:
         empty_state = QLabel(
-            "No conversation yet. Highlight text in another app and use Alt+D, Alt+E, or Alt+S. "
+            "No conversation yet. Highlight text in another app and use Alt+D, Alt+E, Alt+S, or press Alt+V to speak. "
             "Press Alt+H to hide or show the window. "
             "Press Alt+L to switch between your chosen language and English."
         )

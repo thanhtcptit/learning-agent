@@ -4,6 +4,7 @@ from PySide6.QtCore import QPoint, QRect, QSize
 
 import ui.main_window as main_window_module
 
+from core.hotkey import VOICE_HOTKEY_ACTION
 from prompts.templates import PromptMode
 from ui.main_window import _calculate_hotkey_window_position
 from session.manager import ConversationMessage
@@ -192,6 +193,43 @@ def test_hotkey_window_schedules_non_definition_modes_even_when_ocr_enabled(monk
 
     assert window.present_calls == 1
     assert window._hotkey_pending is False
+
+
+def test_hotkey_window_presents_voice_mode_without_pending_prompt(monkeypatch) -> None:
+    class DummyController:
+        screen_ocr_enabled = True
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._controller = DummyController()
+            self._hotkey_pending = False
+            self.visible = False
+            self.show_calls = 0
+
+        def isMinimized(self) -> bool:
+            return False
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def _show_for_hotkey(self) -> None:
+            self.show_calls += 1
+            self.visible = True
+
+    window = DummyWindow()
+
+    scheduled: list[int] = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled.append(delay_ms)
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
+    main_window_module.MainWindow._queue_hotkey_presentation(window, VOICE_HOTKEY_ACTION)
+
+    assert window._hotkey_pending is False
+    assert window.show_calls == 0
+    assert scheduled == [main_window_module.MainWindow.HOTKEY_PRESENTATION_DELAY_MS]
 
 
 def test_main_window_close_event_hides_to_tray_when_available() -> None:
@@ -585,9 +623,13 @@ def test_main_window_updates_language_indicator() -> None:
     class DummyLabel:
         def __init__(self) -> None:
             self.text = ""
+            self.tool_tip = ""
 
         def setText(self, value: str) -> None:
             self.text = value
+
+        def setToolTip(self, value: str) -> None:
+            self.tool_tip = value
 
     class DummyWindow:
         def __init__(self) -> None:
@@ -597,7 +639,32 @@ def test_main_window_updates_language_indicator() -> None:
 
     main_window_module.MainWindow._set_current_language(window, "English")
 
-    assert window.language_indicator.text == "Language: English"
+    assert window.language_indicator.text == "English"
+    assert window.language_indicator.tool_tip == "Current language: English"
+
+
+def test_main_window_status_tooltip_tracks_full_text() -> None:
+    class DummyLabel:
+        def __init__(self) -> None:
+            self.text = ""
+            self.tool_tip = ""
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+        def setToolTip(self, value: str) -> None:
+            self.tool_tip = value
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.status_badge = DummyLabel()
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow._set_status(window, "Listening for speech input")
+
+    assert window.status_badge.text == "Listening for speech input"
+    assert window.status_badge.tool_tip == "Listening for speech input"
 
 
 def test_main_window_sends_manual_input_using_chat_mode() -> None:

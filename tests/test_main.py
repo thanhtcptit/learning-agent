@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from core.app_settings import AppSettings
 from core.config import ProviderConfig
-from core.hotkey import TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION
+from core.hotkey import TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION, VOICE_HOTKEY_ACTION
 import main as main_module
 from main import HotkeyActionRouter
 from prompts.templates import PromptMode
@@ -13,6 +13,7 @@ class FakeController:
         self.is_busy = busy
         self.create_session_calls = 0
         self.handle_hotkey_calls: list[PromptMode] = []
+        self.handle_voice_hotkey_calls = 0
         self.toggle_language_calls = 0
         self.toggle_window_visibility_calls = 0
 
@@ -21,6 +22,9 @@ class FakeController:
 
     def handle_hotkey(self, mode: PromptMode) -> None:
         self.handle_hotkey_calls.append(mode)
+
+    def handle_voice_hotkey(self) -> None:
+        self.handle_voice_hotkey_calls += 1
 
     def toggle_target_language(self) -> None:
         self.toggle_language_calls += 1
@@ -96,6 +100,18 @@ def test_hotkey_router_toggles_window_visibility() -> None:
     assert controller.create_session_calls == 0
     assert controller.handle_hotkey_calls == []
     assert window.toggle_window_visibility_calls == 1
+
+
+def test_hotkey_router_routes_voice_action() -> None:
+    controller = FakeController()
+    window = FakeWindow(pending_new_session=True)
+    router = HotkeyActionRouter(controller, window)
+
+    router.handle_action(VOICE_HOTKEY_ACTION)
+
+    assert controller.create_session_calls == 1
+    assert controller.handle_voice_hotkey_calls == 1
+    assert window.pending_new_session is False
 
 
 def test_resolve_startup_provider_config_prefers_saved_selection(monkeypatch) -> None:

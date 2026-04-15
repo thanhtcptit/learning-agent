@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.hotkey import GlobalHotkeyListener
+from core.hotkey import GlobalHotkeyListener, VOICE_HOTKEY_ACTION
 from core.orchestrator import AppController
 from session.manager import ConversationMessage, ConversationSession
 from prompts.templates import PromptMode
@@ -99,16 +99,16 @@ class MainWindow(QMainWindow):
         header_layout.setContentsMargins(14, 10, 14, 10)
         header_layout.setSpacing(8)
 
-        title_label = QLabel("AI Learning Assistant")
-        title_label.setObjectName("AppTitle")
-
         self.language_indicator = QLabel()
         self.language_indicator.setObjectName("LanguageBadge")
 
-        header_layout.addWidget(title_label)
-        header_layout.addStretch(1)
-        header_layout.addWidget(self.language_indicator)
+        self.status_badge = QLabel("Ready")
+        self.status_badge.setObjectName("StatusBadge")
+
         header_layout.addWidget(self.settings_button)
+        header_layout.addWidget(self.language_indicator)
+        header_layout.addWidget(self.status_badge)
+        header_layout.addStretch(1)
 
         content_frame = QFrame()
         content_frame.setObjectName("ContentPanel")
@@ -155,6 +155,15 @@ class MainWindow(QMainWindow):
                 background: #eff6ff;
                 color: #1d4ed8;
                 border: 1px solid #bfdbfe;
+                border-radius: 999px;
+                padding: 4px 10px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QLabel#StatusBadge {
+                background: #f8fafc;
+                color: #475569;
+                border: 1px solid #dbe3ee;
                 border-radius: 999px;
                 padding: 4px 10px;
                 font-size: 12px;
@@ -226,6 +235,7 @@ class MainWindow(QMainWindow):
         self._controller.message_upserted.connect(self._maybe_present_for_hotkey)
         self._controller.busy_changed.connect(self._set_busy)
         self._controller.current_language_changed.connect(self._set_current_language)
+        self._controller.status_changed.connect(self._set_status)
         self._hotkey_listener.hotkey_triggered.connect(self._queue_hotkey_presentation)
 
         self._escape_shortcut = QShortcut(QKeySequence("Esc"), self)
@@ -316,6 +326,7 @@ class MainWindow(QMainWindow):
     def _apply_initial_state(self) -> None:
         self._load_session(self._controller.current_session)
         self._set_current_language(self._controller.target_language)
+        self._set_status("Ready")
 
     def start_minimized(self) -> None:
         if self._tray_icon is not None:
@@ -344,6 +355,11 @@ class MainWindow(QMainWindow):
         self.settings_popup.show_near(self.settings_button)
 
     def _queue_hotkey_presentation(self, mode: object | None = None) -> None:
+        if mode == VOICE_HOTKEY_ACTION:
+            delay_ms = getattr(self, "HOTKEY_PRESENTATION_DELAY_MS", MainWindow.HOTKEY_PRESENTATION_DELAY_MS)
+            QTimer.singleShot(delay_ms, self._show_for_hotkey)
+            return
+
         if not isinstance(mode, PromptMode) and mode is not None:
             return
 
@@ -413,13 +429,18 @@ class MainWindow(QMainWindow):
     def _scroll_transcript_to_bottom(self) -> None:
         self.transcript.scroll_to_bottom()
 
+    def _set_status(self, text: str) -> None:
+        self.status_badge.setText(text)
+        self.status_badge.setToolTip(text)
+
     def consume_new_session_request(self) -> bool:
         pending = getattr(self, "_start_new_session_on_next_mode", False)
         self._start_new_session_on_next_mode = False
         return pending
 
     def _set_current_language(self, language: str) -> None:
-        self.language_indicator.setText(f"Language: {language}")
+        self.language_indicator.setText(language)
+        self.language_indicator.setToolTip(f"Current language: {language}")
 
     def _on_send_clicked(self, _checked: bool = False) -> None:
         self._on_send_text(self.input_box.text())

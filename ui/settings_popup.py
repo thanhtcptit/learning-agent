@@ -17,6 +17,16 @@ from PySide6.QtWidgets import (
 from core.config import LLMModelEntry, ProviderConfig, discover_llm_catalog
 from core.hotkey import GlobalHotkeyListener
 from core.orchestrator import AppController
+from core.voice_catalog import (
+    DEFAULT_VIETNAMESE_STT_MODEL_ID,
+    DEFAULT_VIETNAMESE_TTS_MODEL_ID,
+    DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
+    VIETNAMESE_STT_MODEL_CHOICES,
+    VIETNAMESE_TTS_MODEL_CHOICES_FOR_SETTINGS,
+    resolve_voice_model_id,
+    resolve_vietnamese_tts_voice_name,
+    vietnamese_tts_voice_choices_for_model,
+)
 from prompts.templates import DEFAULT_TARGET_LANGUAGE
 
 
@@ -84,6 +94,45 @@ class SettingsPopup(QDialog):
         llm_layout.addWidget(self.model_label)
         llm_layout.addWidget(self.model_combo)
 
+        voice_section_title = QLabel("Voice")
+        voice_section_title.setObjectName("PopupSectionTitle")
+
+        self.voice_stt_label = QLabel("Vietnamese STT")
+        self.voice_stt_label.setObjectName("PopupFieldLabel")
+        self.voice_stt_combo = QComboBox()
+        self.voice_stt_combo.setObjectName("PopupVoiceSttCombo")
+
+        self.voice_tts_label = QLabel("Vietnamese TTS")
+        self.voice_tts_label.setObjectName("PopupFieldLabel")
+        self.voice_tts_combo = QComboBox()
+        self.voice_tts_combo.setObjectName("PopupVoiceTtsCombo")
+
+        self.voice_tts_voice_label = QLabel("Voice preset")
+        self.voice_tts_voice_label.setObjectName("PopupFieldLabel")
+        self.voice_tts_voice_combo = QComboBox()
+        self.voice_tts_voice_combo.setObjectName("PopupVoiceNameCombo")
+
+        voice_stt_layout = QVBoxLayout()
+        voice_stt_layout.setSpacing(6)
+        voice_stt_layout.addWidget(self.voice_stt_label)
+        voice_stt_layout.addWidget(self.voice_stt_combo)
+
+        voice_tts_layout = QVBoxLayout()
+        voice_tts_layout.setSpacing(6)
+        voice_tts_layout.addWidget(self.voice_tts_label)
+        voice_tts_layout.addWidget(self.voice_tts_combo)
+
+        voice_tts_voice_layout = QVBoxLayout()
+        voice_tts_voice_layout.setSpacing(6)
+        voice_tts_voice_layout.addWidget(self.voice_tts_voice_label)
+        voice_tts_voice_layout.addWidget(self.voice_tts_voice_combo)
+
+        voice_layout = QVBoxLayout()
+        voice_layout.setSpacing(6)
+        voice_layout.addLayout(voice_stt_layout)
+        voice_layout.addLayout(voice_tts_layout)
+        voice_layout.addLayout(voice_tts_voice_layout)
+
         self.hotkey_checkbox = QCheckBox("Enable global hotkeys")
         self.hotkey_checkbox.setObjectName("PopupHotkeyToggle")
 
@@ -131,6 +180,8 @@ class SettingsPopup(QDialog):
         card_layout.addWidget(self.hotkey_checkbox)
         card_layout.addWidget(self.screen_ocr_checkbox)
         card_layout.addWidget(self.screen_ocr_hint)
+        card_layout.addWidget(voice_section_title)
+        card_layout.addLayout(voice_layout)
         card_layout.addLayout(session_row)
         card_layout.addWidget(self.language_input)
 
@@ -243,10 +294,17 @@ class SettingsPopup(QDialog):
         self._controller.preferred_language_changed.connect(self._sync_language_input)
         self._controller.screen_ocr_enabled_changed.connect(self._sync_screen_ocr_toggle)
         self._controller.current_language_changed.connect(self._sync_current_language_status)
+        self._controller.voice_stt_model_changed.connect(self._sync_voice_stt_selection)
+        self._controller.voice_tts_model_changed.connect(self._sync_voice_tts_selection)
+        self._controller.voice_tts_model_changed.connect(self._sync_voice_tts_voice_selection_from_model)
+        self._controller.voice_tts_voice_name_changed.connect(self._sync_voice_tts_voice_selection)
         self._controller.status_changed.connect(self._set_status)
         self._hotkey_listener.status_changed.connect(self._set_status)
 
         self.model_combo.currentIndexChanged.connect(self._on_model_selected)
+        self.voice_stt_combo.currentIndexChanged.connect(self._on_voice_stt_selected)
+        self.voice_tts_combo.currentIndexChanged.connect(self._on_voice_tts_selected)
+        self.voice_tts_voice_combo.currentIndexChanged.connect(self._on_voice_tts_voice_selected)
         self.hotkey_checkbox.toggled.connect(self._on_hotkey_toggled)
         self.screen_ocr_checkbox.toggled.connect(self._on_screen_ocr_toggled)
         self.session_combo.currentIndexChanged.connect(self._on_session_selected)
@@ -263,6 +321,9 @@ class SettingsPopup(QDialog):
         self.hotkey_checkbox.blockSignals(False)
         self._sync_screen_ocr_toggle(self._controller.screen_ocr_enabled)
         self._sync_llm_selection(self._controller.provider_config)
+        self._sync_voice_stt_selection(self._controller.voice_stt_model_id)
+        self._sync_voice_tts_selection(self._controller.voice_tts_model_id)
+        self._sync_voice_tts_voice_selection(self._controller.voice_tts_voice_name)
 
     def _sync_sessions(self, _value: object) -> None:
         if self._updating:
@@ -295,7 +356,9 @@ class SettingsPopup(QDialog):
             self._updating = False
 
     def _sync_current_language_status(self, language: str) -> None:
-        self.status_label.setText(f"Current language: {language}")
+        text = f"Current language: {language}"
+        self.status_label.setText(text)
+        self.status_label.setToolTip(text)
 
     def _sync_screen_ocr_toggle(self, enabled: bool) -> None:
         if self._updating:
@@ -374,6 +437,92 @@ class SettingsPopup(QDialog):
         finally:
             self._updating = False
 
+    def _sync_voice_stt_selection(self, selected_model_id: object | None = None) -> None:
+        if self._updating:
+            return
+
+        self._updating = True
+        try:
+            resolved_model_id = selected_model_id if isinstance(selected_model_id, str) else self._controller.voice_stt_model_id
+            resolved_model_id = resolve_voice_model_id(
+                resolved_model_id,
+                VIETNAMESE_STT_MODEL_CHOICES,
+                DEFAULT_VIETNAMESE_STT_MODEL_ID,
+            )
+
+            self.voice_stt_combo.blockSignals(True)
+            self.voice_stt_combo.clear()
+            for choice in VIETNAMESE_STT_MODEL_CHOICES:
+                self.voice_stt_combo.addItem(choice.label, choice.model_id)
+            self.voice_stt_combo.setEnabled(True)
+            current_index = self.voice_stt_combo.findData(resolved_model_id)
+            if current_index < 0:
+                current_index = 0
+            self.voice_stt_combo.setCurrentIndex(current_index)
+            self.voice_stt_combo.blockSignals(False)
+        finally:
+            self._updating = False
+
+    def _sync_voice_tts_selection(self, selected_model_id: object | None = None) -> None:
+        if self._updating:
+            return
+
+        self._updating = True
+        try:
+            resolved_model_id = selected_model_id if isinstance(selected_model_id, str) else self._controller.voice_tts_model_id
+            resolved_model_id = resolve_voice_model_id(
+                resolved_model_id,
+                VIETNAMESE_TTS_MODEL_CHOICES_FOR_SETTINGS,
+                DEFAULT_VIETNAMESE_TTS_MODEL_ID,
+            )
+
+            self.voice_tts_combo.blockSignals(True)
+            self.voice_tts_combo.clear()
+            for choice in VIETNAMESE_TTS_MODEL_CHOICES_FOR_SETTINGS:
+                self.voice_tts_combo.addItem(choice.label, choice.model_id)
+            self.voice_tts_combo.setEnabled(True)
+            current_index = self.voice_tts_combo.findData(resolved_model_id)
+            if current_index < 0:
+                current_index = 0
+            self.voice_tts_combo.setCurrentIndex(current_index)
+            self.voice_tts_combo.blockSignals(False)
+        finally:
+            self._updating = False
+
+    def _sync_voice_tts_voice_selection(self, selected_voice_name: object | None = None) -> None:
+        if self._updating:
+            return
+
+        self._updating = True
+        try:
+            resolved_voice_name = selected_voice_name if isinstance(selected_voice_name, str) else self._controller.voice_tts_voice_name
+            choices = vietnamese_tts_voice_choices_for_model(self._controller.voice_tts_model_id)
+            default_voice_name = choices[0].voice_name if choices else DEFAULT_VIETNAMESE_TTS_VOICE_NAME
+            resolved_voice_name = resolve_vietnamese_tts_voice_name(
+                resolved_voice_name,
+                choices,
+                default_voice_name,
+            )
+
+            self.voice_tts_voice_combo.blockSignals(True)
+            self.voice_tts_voice_combo.clear()
+            for choice in choices:
+                self.voice_tts_voice_combo.addItem(choice.label, choice.voice_name)
+            self.voice_tts_voice_combo.setEnabled(True)
+            current_index = self.voice_tts_voice_combo.findData(resolved_voice_name)
+            if current_index < 0:
+                current_index = 0
+            self.voice_tts_voice_combo.setCurrentIndex(current_index)
+            self.voice_tts_voice_combo.blockSignals(False)
+        finally:
+            self._updating = False
+
+    def _sync_voice_tts_voice_selection_from_model(self, _selected_model_id: object | None = None) -> None:
+        if self._updating:
+            return
+
+        SettingsPopup._sync_voice_tts_voice_selection(self, self._controller.voice_tts_voice_name)
+
     def _selected_language(self) -> str:
         language = self.language_input.text().strip()
         return language or DEFAULT_TARGET_LANGUAGE
@@ -384,22 +533,114 @@ class SettingsPopup(QDialog):
             return provider_config
         return None
 
+    def _selected_voice_stt_model_id(self) -> str | None:
+        model_id = self.voice_stt_combo.currentData()
+        if isinstance(model_id, str) and model_id:
+            return model_id
+        return None
+
+    def _selected_voice_tts_model_id(self) -> str | None:
+        model_id = self.voice_tts_combo.currentData()
+        if isinstance(model_id, str) and model_id:
+            return model_id
+        return None
+
+    def _selected_voice_tts_voice_name(self) -> str | None:
+        voice_name = self.voice_tts_voice_combo.currentData()
+        if isinstance(voice_name, str) and voice_name:
+            return voice_name
+        return None
+
     def _apply_selected_provider(self) -> None:
         provider_config = self._selected_provider_config()
         if provider_config is None or provider_config == self._controller.provider_config:
             return
 
+        previous_provider_config = self._controller.provider_config
         try:
             self._controller.set_provider(provider_config)
         except Exception as exc:  # noqa: BLE001 - keep the popup responsive on configuration failures
             self._set_status(f"LLM update failed: {exc}")
             self._sync_llm_selection(self._controller.provider_config)
+            return
+
+        if self._controller.provider_config != provider_config:
+            self._sync_llm_selection(previous_provider_config)
 
     def _on_model_selected(self, _index: int) -> None:
         if self._updating:
             return
 
         self._apply_selected_provider()
+
+    def _apply_selected_voice_stt_model(self) -> None:
+        model_id = self._selected_voice_stt_model_id()
+        if model_id is None or model_id == self._controller.voice_stt_model_id:
+            return
+
+        previous_model_id = self._controller.voice_stt_model_id
+        try:
+            self._controller.set_voice_stt_model_id(model_id)
+        except Exception as exc:  # noqa: BLE001 - keep the popup responsive on configuration failures
+            self._set_status(f"Vietnamese STT update failed: {exc}")
+            self._sync_voice_stt_selection(self._controller.voice_stt_model_id)
+            return
+
+        if self._controller.voice_stt_model_id != model_id:
+            self._sync_voice_stt_selection(previous_model_id)
+
+    def _apply_selected_voice_tts_model(self) -> None:
+        model_id = self._selected_voice_tts_model_id()
+        if model_id is None or model_id == self._controller.voice_tts_model_id:
+            return
+
+        previous_model_id = self._controller.voice_tts_model_id
+        try:
+            self._controller.set_voice_tts_model_id(model_id)
+        except Exception as exc:  # noqa: BLE001 - keep the popup responsive on configuration failures
+            self._set_status(f"Vietnamese TTS update failed: {exc}")
+            self._sync_voice_tts_selection(self._controller.voice_tts_model_id)
+            return
+
+        if self._controller.voice_tts_model_id != model_id:
+            self._sync_voice_tts_selection(previous_model_id)
+            return
+
+        self._sync_voice_tts_voice_selection_from_model(self._controller.voice_tts_model_id)
+
+    def _apply_selected_voice_tts_voice_name(self) -> None:
+        voice_name = self._selected_voice_tts_voice_name()
+        if voice_name is None or voice_name == self._controller.voice_tts_voice_name:
+            return
+
+        previous_voice_name = self._controller.voice_tts_voice_name
+        try:
+            self._controller.set_voice_tts_voice_name(voice_name)
+        except Exception as exc:  # noqa: BLE001 - keep the popup responsive on configuration failures
+            self._set_status(f"Vietnamese voice update failed: {exc}")
+            self._sync_voice_tts_voice_selection(self._controller.voice_tts_voice_name)
+            return
+
+        if self._controller.voice_tts_voice_name != voice_name:
+            self._sync_voice_tts_voice_selection(previous_voice_name)
+
+    def _on_voice_stt_selected(self, _index: int) -> None:
+        if self._updating:
+            return
+
+        self._apply_selected_voice_stt_model()
+
+    def _on_voice_tts_selected(self, _index: int) -> None:
+        if self._updating:
+            return
+
+        self._apply_selected_voice_tts_model()
+
+    def _on_voice_tts_voice_selected(self, _index: int) -> None:
+        if self._updating:
+            return
+
+        self._apply_selected_voice_tts_voice_name()
 
     def _on_session_selected(self, _index: int) -> None:
         if self._updating:
@@ -450,3 +691,4 @@ class SettingsPopup(QDialog):
 
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
+        self.status_label.setToolTip(text)

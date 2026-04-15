@@ -1,15 +1,29 @@
 from __future__ import annotations
 
 import threading
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 from PySide6.QtCore import QObject, Signal
 
+from core.audio_recorder import AudioRecorder, RecordedAudio, VoiceCaptureCancelled, VoiceCaptureError
 from core.clipboard import ClipboardService
 from core.config import ProviderConfig, build_provider
 from core.screen_ocr import ScreenOcrService
+from core.stt_service import WhisperSttService
+from core.tts_service import ChatterboxTtsService
 from llm.base import LLMMessage, LLMProvider
-from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages
+from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages, build_voice_messages
+from core.voice_catalog import (
+    DEFAULT_VIETNAMESE_STT_MODEL_ID,
+    DEFAULT_VIETNAMESE_TTS_MODEL_ID,
+    DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
+    VIETNAMESE_STT_MODEL_CHOICES,
+    VIETNAMESE_TTS_MODEL_CHOICES,
+    VIETNAMESE_TTS_VOICE_CHOICES,
+    resolve_voice_model_id,
+    resolve_vietnamese_tts_voice_name,
+    voice_model_label,
+)
 from session.manager import ConversationSession, SessionManager
 
 
@@ -21,6 +35,9 @@ class AppController(QObject):
     provider_config_changed = Signal(object)
     screen_ocr_enabled_changed = Signal(bool)
     current_language_changed = Signal(str)
+    voice_stt_model_changed = Signal(str)
+    voice_tts_model_changed = Signal(str)
+    voice_tts_voice_name_changed = Signal(str)
     status_changed = Signal(str)
     error_occurred = Signal(str)
     busy_changed = Signal(bool)
@@ -36,6 +53,9 @@ class AppController(QObject):
         screen_ocr_enabled: bool = False,
         clipboard_service: ClipboardService | None = None,
         screen_ocr_service: ScreenOcrService | None = None,
+        voice_recorder: AudioRecorder | None = None,
+        stt_service: Any | None = None,
+        tts_service: Any | None = None,
         session_manager: SessionManager | None = None,
     ) -> None:
         super().__init__()
@@ -44,10 +64,28 @@ class AppController(QObject):
         self._provider_factory = provider_factory or build_provider
         self._clipboard_service = clipboard_service or ClipboardService()
         self._screen_ocr_service = screen_ocr_service or ScreenOcrService()
+        self._voice_recorder = voice_recorder or AudioRecorder()
+        self._stt_service = stt_service or WhisperSttService()
+        self._tts_service = tts_service or ChatterboxTtsService()
         self._session_manager = session_manager or SessionManager()
         self._default_mode = default_mode
         self._preferred_language = target_language.strip() or DEFAULT_TARGET_LANGUAGE
         self._target_language = self._preferred_language
+        self._voice_stt_model_id = resolve_voice_model_id(
+            getattr(self._stt_service, "selected_vietnamese_model_id", DEFAULT_VIETNAMESE_STT_MODEL_ID),
+            VIETNAMESE_STT_MODEL_CHOICES,
+            DEFAULT_VIETNAMESE_STT_MODEL_ID,
+        )
+        self._voice_tts_model_id = resolve_voice_model_id(
+            getattr(self._tts_service, "selected_vietnamese_model_id", DEFAULT_VIETNAMESE_TTS_MODEL_ID),
+            VIETNAMESE_TTS_MODEL_CHOICES,
+            DEFAULT_VIETNAMESE_TTS_MODEL_ID,
+        )
+        self._voice_tts_voice_name = resolve_vietnamese_tts_voice_name(
+            getattr(self._tts_service, "selected_vietnamese_voice_name", DEFAULT_VIETNAMESE_TTS_VOICE_NAME),
+            VIETNAMESE_TTS_VOICE_CHOICES,
+            DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
+        )
         self._screen_ocr_enabled = bool(screen_ocr_enabled)
         self._generation_lock = threading.Lock()
         self._active_request = False
@@ -70,6 +108,18 @@ class AppController(QObject):
     @property
     def screen_ocr_enabled(self) -> bool:
         return self._screen_ocr_enabled
+
+    @property
+    def voice_stt_model_id(self) -> str:
+        return self._voice_stt_model_id
+
+    @property
+    def voice_tts_model_id(self) -> str:
+        return self._voice_tts_model_id
+
+    @property
+    def voice_tts_voice_name(self) -> str:
+        return self._voice_tts_voice_name
 
     @property
     def is_busy(self) -> bool:
@@ -142,6 +192,83 @@ class AppController(QObject):
         self.status_changed.emit(
             f"LLM set to {provider_config.name or provider_config.display_name or provider_config.model} ({provider_config.provider})"
         )
+
+    def set_voice_stt_model_id(self, model_id: str) -> None:
+        cleaned_model_id = resolve_voice_model_id(
+            model_id,
+            VIETNAMESE_STT_MODEL_CHOICES,
+            DEFAULT_VIETNAMESE_STT_MODEL_ID,
+        )
+        if cleaned_model_id == self._voice_stt_model_id:
+            return
+
+        if self._is_busy():
+            self.status_changed.emit("Wait for the current response before changing the voice model")
+            return
+
+        try:
+            setter = getattr(self._stt_service, "set_selected_vietnamese_model_id", None)
+            if callable(setter):
+                setter(cleaned_model_id)
+        except Exception as exc:  # noqa: BLE001 - surface selection failures to the UI
+            self.status_changed.emit(f"Failed to change Vietnamese STT model: {exc}")
+            return
+
+        self._voice_stt_model_id = cleaned_model_id
+        self.voice_stt_model_changed.emit(cleaned_model_id)
+        self.status_changed.emit(f"Vietnamese STT set to {voice_model_label(cleaned_model_id, VIETNAMESE_STT_MODEL_CHOICES)}")
+
+    def set_voice_tts_model_id(self, model_id: str) -> None:
+        cleaned_model_id = resolve_voice_model_id(
+            model_id,
+            VIETNAMESE_TTS_MODEL_CHOICES,
+            DEFAULT_VIETNAMESE_TTS_MODEL_ID,
+        )
+        if cleaned_model_id == self._voice_tts_model_id:
+            return
+
+        if self._is_busy():
+            self.status_changed.emit("Wait for the current response before changing the voice model")
+            return
+
+        try:
+            setter = getattr(self._tts_service, "set_selected_vietnamese_model_id", None)
+            if callable(setter):
+                setter(cleaned_model_id)
+        except Exception as exc:  # noqa: BLE001 - surface selection failures to the UI
+            self.status_changed.emit(f"Failed to change Vietnamese TTS model: {exc}")
+            return
+
+        self._voice_tts_model_id = cleaned_model_id
+        self.voice_tts_model_changed.emit(cleaned_model_id)
+        self.status_changed.emit(f"Vietnamese TTS set to {voice_model_label(cleaned_model_id, VIETNAMESE_TTS_MODEL_CHOICES)}")
+
+    def set_voice_tts_voice_name(self, voice_name: str) -> None:
+        cleaned_voice_name = resolve_vietnamese_tts_voice_name(
+            voice_name,
+            VIETNAMESE_TTS_VOICE_CHOICES,
+            DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
+        )
+        if cleaned_voice_name == self._voice_tts_voice_name:
+            return
+
+        if self._is_busy():
+            self.status_changed.emit("Wait for the current response before changing the voice preset")
+            return
+
+        try:
+            setter = getattr(self._tts_service, "set_selected_vietnamese_voice_name", None)
+            if not callable(setter):
+                setter = getattr(self._tts_service, "set_voice_name", None)
+            if callable(setter):
+                setter(cleaned_voice_name)
+        except Exception as exc:  # noqa: BLE001 - surface selection failures to the UI
+            self.status_changed.emit(f"Failed to change Vietnamese voice: {exc}")
+            return
+
+        self._voice_tts_voice_name = cleaned_voice_name
+        self.voice_tts_voice_name_changed.emit(cleaned_voice_name)
+        self.status_changed.emit(f"Voice preset set to {cleaned_voice_name}")
 
     def select_session(self, session_id: str) -> ConversationSession:
         session = self._session_manager.select_session(session_id)
@@ -230,11 +357,33 @@ class AppController(QObject):
         threading.Thread(target=worker, daemon=True).start()
 
     def shutdown(self) -> None:
+        self.stop_current_request()
         self.status_changed.emit("Shutting down")
 
     def stop_current_request(self) -> None:
         cancel_event = self._current_cancel_event()
         if cancel_event is None:
+            cancel_current_request = getattr(self._provider, "cancel_current_request", None)
+            if callable(cancel_current_request):
+                try:
+                    cancel_current_request()
+                except Exception:
+                    pass
+
+            cancel_voice_recording = getattr(self._voice_recorder, "cancel_current_request", None)
+            if callable(cancel_voice_recording):
+                try:
+                    cancel_voice_recording()
+                except Exception:
+                    pass
+
+            stop_tts = getattr(self._tts_service, "stop", None)
+            if callable(stop_tts):
+                try:
+                    stop_tts()
+                except Exception:
+                    pass
+
             return
 
         cancel_event.set()
@@ -246,7 +395,127 @@ class AppController(QObject):
             except Exception:
                 pass
 
+        cancel_voice_recording = getattr(self._voice_recorder, "cancel_current_request", None)
+        if callable(cancel_voice_recording):
+            try:
+                cancel_voice_recording()
+            except Exception:
+                pass
+
+        stop_tts = getattr(self._tts_service, "stop", None)
+        if callable(stop_tts):
+            try:
+                stop_tts()
+            except Exception:
+                pass
+
         self.status_changed.emit("Stopping request...")
+
+    def handle_voice_hotkey(self) -> None:
+        if self._is_busy():
+            self.status_changed.emit("A response is already in progress")
+            return
+
+        cancel_event = self._begin_request()
+        if cancel_event is None:
+            self.status_changed.emit("A response is already in progress")
+            return
+
+        self.busy_changed.emit(True)
+        self.status_changed.emit("Listening...")
+
+        def worker() -> None:
+            try:
+                recording = self._voice_recorder.record_until_silence(cancel_event=cancel_event)
+            except VoiceCaptureCancelled:
+                self.status_changed.emit("Voice recording cancelled")
+                self._end_request()
+                return
+            except VoiceCaptureError as exc:
+                self.status_changed.emit(str(exc))
+                self._end_request()
+                return
+            except Exception as exc:  # noqa: BLE001 - capture failures should be surfaced to the UI
+                self.error_occurred.emit(f"Voice capture failed: {exc}")
+                self.status_changed.emit("Error")
+                self._end_request()
+                return
+
+            if cancel_event.is_set():
+                self.status_changed.emit("Request stopped")
+                self._end_request()
+                return
+
+            self.status_changed.emit("Transcribing...")
+            try:
+                transcript = self._stt_service.transcribe(recording, cancel_event=cancel_event, language=self._target_language)
+            except Exception as exc:  # noqa: BLE001 - surface transcription failures to the UI
+                if cancel_event.is_set():
+                    self.status_changed.emit("Request stopped")
+                else:
+                    self.error_occurred.emit(f"Speech-to-text failed: {exc}")
+                    self.status_changed.emit("Error")
+                self._end_request()
+                return
+
+            cleaned_transcript = transcript.strip()
+            if cancel_event.is_set():
+                self.status_changed.emit("Request stopped")
+                self._end_request()
+                return
+
+            if not cleaned_transcript:
+                self.status_changed.emit("No speech detected")
+                self._end_request()
+                return
+
+            prepared = self._prepare_request(
+                cleaned_transcript,
+                None,
+                self._target_language,
+                cancel_event,
+                message_mode="voice",
+                title_prefix="Voice",
+            )
+            if prepared is None:
+                self._end_request()
+                return
+
+            user_message, assistant_message, request_messages = prepared
+            if cancel_event.is_set():
+                self._finalize_cancelled_request(user_message.id, assistant_message.id, "")
+                self._end_request()
+                return
+
+            self.status_changed.emit("Thinking...")
+            response_text = self._run_streamed_response(user_message.id, assistant_message.id, request_messages, cancel_event)
+            if response_text is None:
+                self._end_request()
+                return
+
+            if cancel_event.is_set():
+                self.status_changed.emit("Request stopped")
+                self._end_request()
+                return
+
+            self.status_changed.emit("Speaking...")
+            try:
+                self._tts_service.speak(response_text, cancel_event=cancel_event, language=self._target_language)
+            except Exception as exc:  # noqa: BLE001 - speech playback should not hide the text response
+                if cancel_event.is_set():
+                    self.status_changed.emit("Request stopped")
+                else:
+                    self.error_occurred.emit(f"Speech playback failed: {exc}")
+                    self.status_changed.emit("Ready")
+            else:
+                if cancel_event.is_set():
+                    self.status_changed.emit("Request stopped")
+                else:
+                    self.status_changed.emit("Ready")
+            finally:
+                self._end_request()
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _dispatch_prompt_request(self, text: str, mode: PromptMode, target_language: str) -> None:
         cancel_event = self._begin_request()
@@ -275,42 +544,28 @@ class AppController(QObject):
         target_language: str,
         cancel_event: threading.Event,
         *,
+        message_mode: str | None = None,
+        title_prefix: str | None = None,
         screen_context: str | None = None,
         session: ConversationSession | None = None,
         preappended_user_message: bool = False,
     ) -> None:
-        if cancel_event.is_set():
-            self.status_changed.emit("Request stopped")
+        prepared = self._prepare_request(
+            text,
+            mode,
+            target_language,
+            cancel_event,
+            message_mode=message_mode,
+            title_prefix=title_prefix,
+            screen_context=screen_context,
+            session=session,
+            preappended_user_message=preappended_user_message,
+        )
+        if prepared is None:
             self._end_request()
             return
 
-        session = session or self._session_manager.current_session()
-        message_mode = mode.value if mode is not None else None
-        if not preappended_user_message:
-            user_message = session.append_message(
-                "user",
-                text,
-                mode=message_mode,
-                screen_context=screen_context,
-            )
-            self.message_upserted.emit(user_message)
-            self._emit_sessions_changed()
-        else:
-            user_message = session.messages[-1]
-
-        history_messages = session.llm_history(exclude_last=1, limit=20)
-        assistant_message = session.append_message("assistant", "", mode=message_mode)
-        self.message_upserted.emit(assistant_message)
-
-        if cancel_event.is_set():
-            self._finalize_cancelled_request(user_message.id, assistant_message.id, "")
-            self._end_request()
-            return
-
-        if mode is None:
-            request_messages = [*history_messages, *build_chat_messages(text, target_language)]
-        else:
-            request_messages = [*history_messages, *build_messages(text, mode, target_language, screen_context=screen_context)]
+        user_message, assistant_message, request_messages = prepared
         self.status_changed.emit("Thinking...")
         self.busy_changed.emit(True)
 
@@ -321,6 +576,58 @@ class AppController(QObject):
         )
         thread.start()
 
+    def _prepare_request(
+        self,
+        text: str,
+        mode: PromptMode | None,
+        target_language: str,
+        cancel_event: threading.Event,
+        *,
+        message_mode: str | None = None,
+        title_prefix: str | None = None,
+        screen_context: str | None = None,
+        session: ConversationSession | None = None,
+        preappended_user_message: bool = False,
+    ) -> tuple[ConversationMessage, ConversationMessage, list[LLMMessage]] | None:
+        if cancel_event.is_set():
+            self.status_changed.emit("Request stopped")
+            return None
+
+        session = session or self._session_manager.current_session()
+        stored_message_mode = message_mode if message_mode is not None else (mode.value if mode is not None else None)
+        stored_title_prefix = title_prefix if title_prefix is not None else (mode.label if mode is not None else None)
+
+        if not preappended_user_message:
+            user_message = session.append_message(
+                "user",
+                text,
+                mode=stored_message_mode,
+                screen_context=screen_context,
+                title_prefix=stored_title_prefix,
+            )
+            self.message_upserted.emit(user_message)
+            self._emit_sessions_changed()
+        else:
+            user_message = session.messages[-1]
+
+        history_messages = session.llm_history(exclude_last=1, limit=20)
+        assistant_message = session.append_message("assistant", "", mode=stored_message_mode)
+        self.message_upserted.emit(assistant_message)
+
+        if cancel_event.is_set():
+            self._finalize_cancelled_request(user_message.id, assistant_message.id, "")
+            return None
+
+        if mode is None:
+            if message_mode == "voice":
+                request_messages = [*history_messages, *build_voice_messages(text, target_language)]
+            else:
+                request_messages = [*history_messages, *build_chat_messages(text, target_language)]
+        else:
+            request_messages = [*history_messages, *build_messages(text, mode, target_language, screen_context=screen_context)]
+
+        return user_message, assistant_message, request_messages
+
     def _stream_response(
         self,
         user_message_id: str,
@@ -328,20 +635,32 @@ class AppController(QObject):
         messages: Sequence[LLMMessage],
         cancel_event: threading.Event,
     ) -> None:
+        try:
+            self._run_streamed_response(user_message_id, assistant_message_id, messages, cancel_event)
+        finally:
+            self._end_request()
+
+    def _run_streamed_response(
+        self,
+        user_message_id: str,
+        assistant_message_id: str,
+        messages: Sequence[LLMMessage],
+        cancel_event: threading.Event,
+    ) -> str | None:
         response_text = ""
 
         try:
             for chunk in self._provider.stream_chat(messages, cancel_event=cancel_event):
                 if cancel_event.is_set():
                     self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
-                    return
+                    return None
                 response_text += chunk
                 updated_message = self._session_manager.update_message(assistant_message_id, response_text)
                 self.message_upserted.emit(updated_message)
 
             if cancel_event.is_set():
                 self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
-                return
+                return None
 
             if not response_text.strip():
                 response_text = "No response received."
@@ -349,10 +668,11 @@ class AppController(QObject):
                 self.message_upserted.emit(updated_message)
 
             self.status_changed.emit("Ready")
+            return response_text
         except Exception as exc:  # noqa: BLE001 - surface provider failures to the UI
             if cancel_event.is_set():
                 self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
-                return
+                return None
 
             error_text = f"LLM request failed: {exc}"
             try:
@@ -362,8 +682,7 @@ class AppController(QObject):
                 pass
             self.error_occurred.emit(error_text)
             self.status_changed.emit("Error")
-        finally:
-            self._end_request()
+            return None
 
     def _begin_request(self) -> threading.Event | None:
         with self._generation_lock:

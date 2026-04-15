@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages
+from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages, build_voice_messages
 
 
 def test_build_messages_definition_mode_uses_target_language() -> None:
@@ -52,6 +52,19 @@ def test_build_chat_messages_uses_target_language() -> None:
     assert "French" in messages[0].content
     assert messages[1].role == "user"
     assert messages[1].content == "How does this work?"
+
+
+def test_build_voice_messages_uses_plain_speech_style() -> None:
+    messages = build_voice_messages("Explain this in Vietnamese", target_language="Vietnamese")
+
+    assert messages[0].role == "system"
+    assert "voice assistant" in messages[0].content.lower()
+    assert "plain natural speech" in messages[0].content.lower()
+    assert "avoid markdown" in messages[0].content.lower()
+    assert "special characters" in messages[0].content.lower()
+    assert messages[0].content.count(":") == 0
+    assert messages[1].role == "user"
+    assert messages[1].content == "Explain this in Vietnamese"
 
 
 def test_prompt_mode_labels_are_stable() -> None:
