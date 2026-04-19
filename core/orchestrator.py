@@ -24,10 +24,12 @@ from core.voice_catalog import (
     resolve_vietnamese_tts_voice_name,
     voice_model_label,
 )
-from session.manager import ConversationSession, SessionManager
+from session.manager import ConversationMessage, ConversationSession, SessionManager
 
 
 class AppController(QObject):
+    VOICE_FOLLOW_UP_IDLE_TIMEOUT_SECONDS = 3.0
+
     sessions_changed = Signal(object)
     current_session_changed = Signal(object)
     message_upserted = Signal(object)
@@ -425,93 +427,100 @@ class AppController(QObject):
         self.status_changed.emit("Listening...")
 
         def worker() -> None:
+            follow_up_round = False
             try:
-                recording = self._voice_recorder.record_until_silence(cancel_event=cancel_event)
-            except VoiceCaptureCancelled:
-                self.status_changed.emit("Voice recording cancelled")
-                self._end_request()
-                return
-            except VoiceCaptureError as exc:
-                self.status_changed.emit(str(exc))
-                self._end_request()
-                return
-            except Exception as exc:  # noqa: BLE001 - capture failures should be surfaced to the UI
-                self.error_occurred.emit(f"Voice capture failed: {exc}")
-                self.status_changed.emit("Error")
-                self._end_request()
-                return
+                while True:
+                    if follow_up_round:
+                        self.status_changed.emit("Listening...")
 
-            if cancel_event.is_set():
-                self.status_changed.emit("Request stopped")
-                self._end_request()
-                return
+                    try:
+                        recording = self._voice_recorder.record_until_silence(
+                            cancel_event=cancel_event,
+                            initial_timeout_seconds=(
+                                self.VOICE_FOLLOW_UP_IDLE_TIMEOUT_SECONDS if follow_up_round else None
+                            ),
+                        )
+                    except VoiceCaptureCancelled:
+                        self.status_changed.emit("Voice recording cancelled")
+                        return
+                    except VoiceCaptureError as exc:
+                        if follow_up_round and "no speech detected" in str(exc).strip().lower():
+                            self.status_changed.emit("Ready")
+                            return
 
-            self.status_changed.emit("Transcribing...")
-            try:
-                transcript = self._stt_service.transcribe(recording, cancel_event=cancel_event, language=self._target_language)
-            except Exception as exc:  # noqa: BLE001 - surface transcription failures to the UI
-                if cancel_event.is_set():
-                    self.status_changed.emit("Request stopped")
-                else:
-                    self.error_occurred.emit(f"Speech-to-text failed: {exc}")
-                    self.status_changed.emit("Error")
-                self._end_request()
-                return
+                        self.status_changed.emit(str(exc))
+                        return
+                    except Exception as exc:  # noqa: BLE001 - capture failures should be surfaced to the UI
+                        self.error_occurred.emit(f"Voice capture failed: {exc}")
+                        self.status_changed.emit("Error")
+                        return
 
-            cleaned_transcript = transcript.strip()
-            if cancel_event.is_set():
-                self.status_changed.emit("Request stopped")
-                self._end_request()
-                return
+                    if cancel_event.is_set():
+                        self.status_changed.emit("Request stopped")
+                        return
 
-            if not cleaned_transcript:
-                self.status_changed.emit("No speech detected")
-                self._end_request()
-                return
+                    self.status_changed.emit("Transcribing...")
+                    try:
+                        transcript = self._stt_service.transcribe(recording, cancel_event=cancel_event, language=self._target_language)
+                    except Exception as exc:  # noqa: BLE001 - surface transcription failures to the UI
+                        if cancel_event.is_set():
+                            self.status_changed.emit("Request stopped")
+                        else:
+                            self.error_occurred.emit(f"Speech-to-text failed: {exc}")
+                            self.status_changed.emit("Error")
+                        return
 
-            prepared = self._prepare_request(
-                cleaned_transcript,
-                None,
-                self._target_language,
-                cancel_event,
-                message_mode="voice",
-                title_prefix="Voice",
-            )
-            if prepared is None:
-                self._end_request()
-                return
+                    cleaned_transcript = transcript.strip()
+                    if cancel_event.is_set():
+                        self.status_changed.emit("Request stopped")
+                        return
 
-            user_message, assistant_message, request_messages = prepared
-            if cancel_event.is_set():
-                self._finalize_cancelled_request(user_message.id, assistant_message.id, "")
-                self._end_request()
-                return
+                    if not cleaned_transcript:
+                        self.status_changed.emit("No speech detected")
+                        return
 
-            self.status_changed.emit("Thinking...")
-            response_text = self._run_streamed_response(user_message.id, assistant_message.id, request_messages, cancel_event)
-            if response_text is None:
-                self._end_request()
-                return
+                    prepared = self._prepare_request(
+                        cleaned_transcript,
+                        None,
+                        self._target_language,
+                        cancel_event,
+                        message_mode="voice",
+                        title_prefix="Voice",
+                    )
+                    if prepared is None:
+                        return
 
-            if cancel_event.is_set():
-                self.status_changed.emit("Request stopped")
-                self._end_request()
-                return
+                    user_message, assistant_message, request_messages = prepared
+                    if cancel_event.is_set():
+                        self._finalize_cancelled_request(user_message.id, assistant_message.id, "")
+                        return
 
-            self.status_changed.emit("Speaking...")
-            try:
-                self._tts_service.speak(response_text, cancel_event=cancel_event, language=self._target_language)
-            except Exception as exc:  # noqa: BLE001 - speech playback should not hide the text response
-                if cancel_event.is_set():
-                    self.status_changed.emit("Request stopped")
-                else:
-                    self.error_occurred.emit(f"Speech playback failed: {exc}")
-                    self.status_changed.emit("Ready")
-            else:
-                if cancel_event.is_set():
-                    self.status_changed.emit("Request stopped")
-                else:
-                    self.status_changed.emit("Ready")
+                    self.status_changed.emit("Thinking...")
+                    response_text = self._run_streamed_response(user_message.id, assistant_message.id, request_messages, cancel_event)
+                    if response_text is None:
+                        return
+
+                    if cancel_event.is_set():
+                        self.status_changed.emit("Request stopped")
+                        return
+
+                    self.status_changed.emit("Speaking...")
+                    try:
+                        self._tts_service.speak(response_text, cancel_event=cancel_event, language=self._target_language)
+                    except Exception as exc:  # noqa: BLE001 - speech playback should not hide the text response
+                        if cancel_event.is_set():
+                            self.status_changed.emit("Request stopped")
+                        else:
+                            self.error_occurred.emit(f"Speech playback failed: {exc}")
+                            self.status_changed.emit("Ready")
+                        return
+
+                    if cancel_event.is_set():
+                        self.status_changed.emit("Request stopped")
+                        return
+
+                    follow_up_round = True
+
             finally:
                 self._end_request()
 

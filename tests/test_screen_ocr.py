@@ -132,5 +132,5 @@ def test_screen_ocr_service_filters_to_relevant_text_when_selection_is_provided(
 
     text = service.capture_screen_text("linear algebra")
 
-    assert text == "Linear algebra"
+    assert text == "linear algebra\nNoise header\nVector spaces and matrices"
     assert captured["ocr_inputs"] == [b"full-png", b"crop-png"]

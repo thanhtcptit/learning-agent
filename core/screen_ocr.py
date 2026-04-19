@@ -58,12 +58,14 @@ class ScreenOcrService:
         engine = self._ensure_engine()
         blocks = self._run_ocr(engine, capture.rgb, capture.width, capture.height)
         if selection_text is not None and selection_text.strip():
+            selected_text = self._collapse_whitespace(selection_text)
             focus_block = self._find_focus_block(blocks, selection_text)
             if focus_block is None:
-                return ""
+                return selected_text
 
             focus_blocks = self._collect_line_blocks(blocks, focus_block)
             region = self._build_region_from_blocks(focus_blocks, capture.width, capture.height)
+            context_blocks = list(focus_blocks)
             if region is not None and (region.width < capture.width or region.height < capture.height):
                 cropped_rgb, cropped_width, cropped_height = self._crop_rgb_bytes(
                     capture.rgb,
@@ -78,9 +80,10 @@ class ScreenOcrService:
                         if cropped_focus_block is not None:
                             cropped_focus_blocks = self._collect_line_blocks(cropped_blocks, cropped_focus_block)
                             if cropped_focus_blocks:
-                                return self._join_blocks(cropped_focus_blocks)
+                                pass
 
-            return self._join_blocks(focus_blocks)
+            context_text = self._join_blocks(context_blocks)
+            return self._combine_selection_and_context(selected_text, context_text)
         return self._join_blocks(blocks)
 
     def _ensure_engine(self) -> Any:
@@ -260,20 +263,52 @@ class ScreenOcrService:
         if not blocks:
             return []
 
-        focus_center_y = (focus_block.top + focus_block.bottom) / 2.0
-        focus_height = max(focus_block.bottom - focus_block.top, 1.0)
-        line_tolerance = max(8.0, focus_height * 0.75)
+        line_groups = self._group_blocks_into_lines(blocks)
+        focus_line_index = next(
+            (index for index, line in enumerate(line_groups) if focus_block in line),
+            None,
+        )
 
-        line_blocks = [
-            block
-            for block in blocks
-            if abs(((block.top + block.bottom) / 2.0) - focus_center_y) <= line_tolerance
-        ]
-
-        if not line_blocks:
+        if focus_line_index is None:
             return [focus_block]
 
-        return sorted(line_blocks, key=lambda block: (block.top, block.left, block.text.lower()))
+        start_index = max(0, focus_line_index - 1)
+        end_index = min(len(line_groups), focus_line_index + 2)
+
+        context_blocks: list[_OcrBlock] = []
+        for line in line_groups[start_index:end_index]:
+            context_blocks.extend(line)
+
+        return context_blocks
+
+    def _group_blocks_into_lines(self, blocks: list[_OcrBlock]) -> list[list[_OcrBlock]]:
+        grouped_lines: list[list[_OcrBlock]] = []
+        line_centers: list[float] = []
+        line_heights: list[float] = []
+
+        for block in sorted(blocks, key=lambda block: (block.top, block.left, block.text.lower())):
+            block_center_y = (block.top + block.bottom) / 2.0
+            block_height = max(block.bottom - block.top, 1.0)
+
+            if not grouped_lines:
+                grouped_lines.append([block])
+                line_centers.append(block_center_y)
+                line_heights.append(block_height)
+                continue
+
+            current_line_center = line_centers[-1]
+            current_line_height = max(line_heights[-1], block_height)
+            if abs(block_center_y - current_line_center) <= max(8.0, current_line_height * 0.5):
+                previous_count = len(grouped_lines[-1])
+                grouped_lines[-1].append(block)
+                line_centers[-1] = ((current_line_center * previous_count) + block_center_y) / (previous_count + 1)
+                line_heights[-1] = current_line_height
+            else:
+                grouped_lines.append([block])
+                line_centers.append(block_center_y)
+                line_heights.append(block_height)
+
+        return grouped_lines
 
     def _build_region_from_blocks(self, blocks: list[_OcrBlock], image_width: int, image_height: int) -> _ScreenRegion | None:
         if not blocks or image_width <= 0 or image_height <= 0:
@@ -360,7 +395,50 @@ class ScreenOcrService:
         return self._collapse_whitespace(stripped)
 
     def _join_blocks(self, blocks: list[_OcrBlock]) -> str:
-        return "\n".join(block.text for block in blocks).strip()
+        grouped_lines = self._group_blocks_into_lines(blocks)
+        return "\n".join(self._join_line_blocks(line) for line in grouped_lines).strip()
+
+    def _join_line_blocks(self, blocks: list[_OcrBlock]) -> str:
+        return self._collapse_whitespace(" ".join(block.text for block in blocks))
+
+    def _merge_context_blocks(self, primary_blocks: list[_OcrBlock], secondary_blocks: list[_OcrBlock]) -> list[_OcrBlock]:
+        merged: list[_OcrBlock] = []
+        seen_keys: set[str] = set()
+
+        for block in sorted([*primary_blocks, *secondary_blocks], key=lambda block: (block.top, block.left, block.text.lower())):
+            normalized_text = self._normalize_for_match(block.text)
+            if not normalized_text or normalized_text in seen_keys:
+                continue
+
+            seen_keys.add(normalized_text)
+            merged.append(block)
+
+        return merged
+
+    def _combine_selection_and_context(self, selection_text: str, context_text: str) -> str:
+        cleaned_selection = self._collapse_whitespace(selection_text)
+        cleaned_context = self._collapse_whitespace(context_text)
+
+        if not cleaned_selection:
+            return cleaned_context
+
+        if not cleaned_context:
+            return cleaned_selection
+
+        selection_key = self._normalize_for_match(cleaned_selection)
+        context_lines: list[str] = []
+        for raw_line in context_text.splitlines():
+            cleaned_line = self._collapse_whitespace(raw_line)
+            if not cleaned_line:
+                continue
+            if self._normalize_for_match(cleaned_line) == selection_key:
+                continue
+            context_lines.append(cleaned_line)
+
+        if not context_lines:
+            return cleaned_selection
+
+        return "\n".join([cleaned_selection, *context_lines]).strip()
 
     def _collapse_whitespace(self, text: str) -> str:
         return " ".join(text.split())

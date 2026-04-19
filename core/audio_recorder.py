@@ -54,7 +54,12 @@ class AudioRecorder:
         self._config = config or AudioRecorderConfig()
         self._stream_factory = stream_factory or self._default_stream_factory
 
-    def record_until_silence(self, cancel_event: Event | None = None) -> RecordedAudio:
+    def record_until_silence(
+        self,
+        cancel_event: Event | None = None,
+        *,
+        initial_timeout_seconds: float | None = None,
+    ) -> RecordedAudio:
         if sd is None:
             raise VoiceCaptureError("sounddevice is required for voice recording.")
 
@@ -63,6 +68,7 @@ class AudioRecorder:
 
         blocksize = max(1, int(self._config.sample_rate * self._config.block_duration_seconds))
         silent_block_limit = max(1, int(round(self._config.silence_duration_seconds / self._config.block_duration_seconds)))
+        initial_timeout = self._config.initial_timeout_seconds if initial_timeout_seconds is None else max(0.0, float(initial_timeout_seconds))
         recorded_blocks: list[np.ndarray] = []
         silence_blocks = 0
         speech_started = False
@@ -92,7 +98,7 @@ class AudioRecorder:
                         speech_started = True
                         recorded_blocks.append(samples.copy())
                         silence_blocks = 0
-                    elif elapsed >= self._config.initial_timeout_seconds:
+                    elif elapsed >= initial_timeout:
                         raise VoiceCaptureError("No speech detected.")
                     continue
 

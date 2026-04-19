@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -93,6 +94,37 @@ def _normalize_whisper_language(language: str | None) -> str | None:
         return None
 
     return DEFAULT_VIETNAMESE_STT_LANGUAGE
+
+
+_LINK_OR_URL_RE = re.compile(
+    r"\[([^\]]+)\]\((?:https?://|www\.)[^\s)]+\)|<(?:https?://|www\.)[^>\s]+>|(?:https?://|www\.)[^\s<>\]]+",
+    re.IGNORECASE,
+)
+
+
+def _replace_urls_and_links_with_web_link_for_tts(text: str) -> str:
+    cleaned_text = text.strip()
+    if not cleaned_text:
+        return ""
+
+    if not _LINK_OR_URL_RE.search(cleaned_text):
+        return cleaned_text
+
+    def replace_link_or_url(match: re.Match[str]) -> str:
+        value = match.group(0)
+        if value.startswith("[") or value.startswith("<"):
+            return "web link"
+
+        trailing_punctuation = ""
+        while value and value[-1] in ".,;:!?)]\"'":
+            trailing_punctuation = value[-1] + trailing_punctuation
+            value = value[:-1]
+        return f"web link{trailing_punctuation}"
+
+    cleaned_text = _LINK_OR_URL_RE.sub(replace_link_or_url, cleaned_text)
+    cleaned_text = " ".join(cleaned_text.split())
+    cleaned_text = re.sub(r"\s+([,.;:!?])", r"\1", cleaned_text)
+    return cleaned_text.strip()
 
 
 def _voice_models_root() -> Path:
@@ -241,8 +273,12 @@ class LanguageAwareTtsService:
             self._apply_selected_vietnamese_voice_name(service)
 
     def speak(self, text: str, *, cancel_event: Any = None, language: str | None = None) -> None:
+        cleaned_text = _replace_urls_and_links_with_web_link_for_tts(text)
+        if not cleaned_text:
+            return
+
         service = self._select_service(language)
-        service.speak(text, cancel_event=cancel_event)
+        service.speak(cleaned_text, cancel_event=cancel_event)
 
     def stop(self) -> None:
         for service in self._unique_services():

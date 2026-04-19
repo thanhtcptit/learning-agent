@@ -87,7 +87,7 @@ def build_voice_messages(text: str, target_language: str = DEFAULT_TARGET_LANGUA
         "You are a voice assistant. Answer in "
         f"{target_language} using plain natural speech that sounds good when spoken aloud. "
         "Keep the reply short, warm, and conversational. Use complete sentences and avoid markdown, list markers, code blocks, tables, and other formatting symbols. "
-        "Do not use special characters or punctuation-heavy formatting. Return only the spoken answer."
+        "Do not use special characters or formatting. Return only the spoken answer."
     )
 
     return [

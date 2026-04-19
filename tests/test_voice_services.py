@@ -48,7 +48,7 @@ class FakeTtsService:
         self.selected_vietnamese_voice_name = DEFAULT_VIETNAMESE_TTS_VOICE_NAME
         self.voice_name_calls: list[str] = []
 
-    def speak(self, text: str, *, cancel_event=None) -> None:
+    def speak(self, text: str, *, cancel_event=None, language=None) -> None:
         self.calls.append((text, cancel_event))
 
     def stop(self) -> None:
@@ -70,7 +70,7 @@ class RecordingService:
         self.stop_calls = 0
         RecordingService.instances.append(self)
 
-    def speak(self, text: str, *, cancel_event=None) -> None:
+    def speak(self, text: str, *, cancel_event=None, language=None) -> None:
         self.calls.append((text, cancel_event))
 
     def stop(self) -> None:
@@ -98,7 +98,28 @@ def test_language_aware_stt_uses_default_engine_for_other_languages() -> None:
 
     assert result == "default"
     assert default_service.calls == [("audio", None, "en")]
-    assert vietnamese_service.calls == []
+
+
+def test_language_aware_tts_replaces_urls_and_links_with_web_link_before_speaking() -> None:
+    default_service = FakeTtsService("default")
+    vietnamese_service = FakeTtsService("vietnamese")
+    service = LanguageAwareTtsService(default_service, vietnamese_service)
+
+    service.speak("See https://example.com and [Docs](https://docs.example.com).", language="Vietnamese")
+
+    assert default_service.calls == []
+    assert vietnamese_service.calls == [("See web link and web link.", None)]
+
+
+def test_language_aware_tts_turns_url_only_responses_into_web_link() -> None:
+    default_service = FakeTtsService("default")
+    vietnamese_service = FakeTtsService("vietnamese")
+    service = LanguageAwareTtsService(default_service, vietnamese_service)
+
+    service.speak("https://example.com", language="Vietnamese")
+
+    assert default_service.calls == []
+    assert vietnamese_service.calls == [("web link", None)]
 
 
 def test_language_aware_tts_uses_vietnamese_engine_for_vietnamese_language() -> None:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QPoint, QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QCloseEvent, QCursor, QGuiApplication, QKeySequence, QShortcut, QShowEvent
+from typing import Callable, cast
+
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QCloseEvent, QCursor, QGuiApplication, QIcon, QKeySequence, QPainter, QPen, QPolygonF, QScreen, QShortcut, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -13,12 +15,14 @@ from PySide6.QtWidgets import (
     QStyle,
     QSystemTrayIcon,
     QToolButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from core.hotkey import GlobalHotkeyListener, VOICE_HOTKEY_ACTION
 from core.orchestrator import AppController
+from core.runtime_paths import get_bundle_data_root
 from session.manager import ConversationMessage, ConversationSession
 from prompts.templates import PromptMode
 from ui.chat_widget import ChatTranscript
@@ -30,6 +34,24 @@ def _clamp(value: int, minimum: int, maximum: int) -> int:
     if maximum < minimum:
         return minimum
     return max(minimum, min(value, maximum))
+
+
+def _call_optional_method(target: object, method_name: str) -> None:
+    method = getattr(target, method_name, None)
+    if callable(method):
+        method()
+
+
+def _create_mascot_icon() -> QIcon:
+    icon_path = get_bundle_data_root() / "assets" / "icon.jpg"
+    if not icon_path.exists():
+        raise FileNotFoundError(f"Robot mascot icon asset is missing: {icon_path}")
+
+    icon = QIcon(str(icon_path))
+    if icon.isNull():
+        raise RuntimeError(f"Robot mascot icon asset could not be loaded: {icon_path}")
+
+    return icon
 
 
 def _calculate_hotkey_window_position(available_geometry: QRect, cursor_position: QPoint, window_size: QSize, margin: int = 16) -> QPoint:
@@ -49,6 +71,315 @@ def _calculate_hotkey_window_position(available_geometry: QRect, cursor_position
     return QPoint(_clamp(target_x, min_x, max_x), _clamp(target_y, min_y, max_y))
 
 
+def _constrain_floating_helper_position(available_geometry: QRect, helper_size: QSize, position: QPoint, margin: int = 16) -> QPoint:
+    min_x = available_geometry.x() + margin
+    max_x = available_geometry.x() + available_geometry.width() - helper_size.width() - margin
+    min_y = available_geometry.y() + margin
+    max_y = available_geometry.y() + available_geometry.height() - helper_size.height() - margin
+
+    return QPoint(_clamp(position.x(), min_x, max_x), _clamp(position.y(), min_y, max_y))
+
+
+def _calculate_floating_helper_position(available_geometry: QRect, helper_size: QSize, margin: int = 16) -> QPoint:
+    target_x = available_geometry.x() + available_geometry.width() - helper_size.width() - margin
+    target_y = available_geometry.y() + available_geometry.height() - helper_size.height() - margin
+
+    return _constrain_floating_helper_position(available_geometry, helper_size, QPoint(target_x, target_y), margin)
+
+
+_STATUS_COLORS: dict[str, tuple[str, str, str]] = {
+    "Thinking": ("#7c3aed", "#a78bfa", "#f5f3ff"),
+    "Listening": ("#2563eb", "#60a5fa", "#eff6ff"),
+    "Speaking": ("#059669", "#34d399", "#ecfdf5"),
+}
+
+
+def _normalize_floating_status_text(text: str) -> str | None:
+    lowered = text.strip().lower()
+    if "think" in lowered:
+        return "Thinking"
+
+    if "listen" in lowered:
+        return "Listening"
+
+    if "speak" in lowered:
+        return "Speaking"
+
+    return None
+
+
+class StatusPill(QFrame):
+    _PILL_HEIGHT = 24
+    _NOTCH_SIZE = 5
+    _H_PADDING = 10
+
+    def __init__(self, text: str = "Ready", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("StatusPill")
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        self._dot = QLabel("\u2022", self)
+        self._dot.setObjectName("StatusPillDot")
+        self._dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._dot.setFixedSize(7, self._PILL_HEIGHT)
+
+        self._text_label = QLabel(text, self)
+        self._text_label.setObjectName("StatusPillLabel")
+        self._text_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(self._H_PADDING, 0, self._H_PADDING, self._NOTCH_SIZE)
+        row.setSpacing(4)
+        row.addWidget(self._dot)
+        row.addWidget(self._text_label)
+        self.setFixedHeight(self._PILL_HEIGHT + self._NOTCH_SIZE)
+
+        self._status_key: str | None = None
+        self.setText(text)
+
+    def setText(self, text: str) -> None:
+        display_text = _normalize_floating_status_text(text)
+        if display_text is None:
+            self._text_label.clear()
+            self._status_key = None
+            self.setToolTip("")
+            self.hide()
+        else:
+            self._status_key = display_text
+            self._text_label.setText(display_text)
+            self.setToolTip(display_text)
+            self._apply_colors()
+            self.show()
+
+        self.adjustSize()
+        self.update()
+
+    def text(self) -> str:
+        return self._text_label.text()
+
+    def _apply_colors(self) -> None:
+        if self._status_key is None:
+            return
+        primary, _, _ = _STATUS_COLORS.get(self._status_key, ("#64748b", "#94a3b8", "#f8fafc"))
+        self.setStyleSheet(
+            f"""
+            QLabel#StatusPillDot {{
+                background: transparent;
+                color: {primary};
+                font-size: 16px;
+                font-weight: 900;
+            }}
+            QLabel#StatusPillLabel {{
+                background: transparent;
+                color: #ffffff;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.5px;
+            }}
+            """
+        )
+
+    def paintEvent(self, event) -> None:
+        del event
+        if self._status_key is None:
+            return
+
+        primary_hex, _, _ = _STATUS_COLORS.get(self._status_key, ("#64748b", "#94a3b8", "#f8fafc"))
+
+        w = max(self.width(), 1)
+        pill_h = self._PILL_HEIGHT
+        radius = pill_h / 2.0
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        shadow_color = QColor(0, 0, 0, 30)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(shadow_color)
+        painter.drawRoundedRect(QRectF(1, 2, w - 2, pill_h), radius, radius)
+
+        pill_color = QColor(primary_hex)
+        painter.setBrush(pill_color)
+        painter.drawRoundedRect(QRectF(0, 0, w, pill_h), radius, radius)
+
+        notch_cx = w / 2.0
+        notch = QPolygonF(
+            [
+                QPointF(notch_cx - self._NOTCH_SIZE, pill_h - 1),
+                QPointF(notch_cx + self._NOTCH_SIZE, pill_h - 1),
+                QPointF(notch_cx, pill_h + self._NOTCH_SIZE - 1),
+            ]
+        )
+        painter.drawPolygon(notch)
+
+
+class FloatingStatusWidget(QWidget):
+    def __init__(
+        self,
+        restore_callback: Callable[[], None],
+        moved_callback: Callable[[], None],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("FloatingHelperWindow")
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self.status_bubble = StatusPill("Ready", self)
+        self.icon_button = FloatingHelperButton(restore_callback, moved_callback, self)
+        self.icon_button.setObjectName("FloatingHelperButton")
+        self.icon_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.icon_button.setAutoRaise(True)
+        self.icon_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.icon_button.setFixedSize(60, 60)
+        self.icon_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.icon_button.setIcon(_create_mascot_icon())
+        self.icon_button.setIconSize(QSize(30, 30))
+        self.icon_button.setToolTip("Restore AI Learning Assistant")
+        self.icon_button.setStyleSheet(
+            """
+            QToolButton#FloatingHelperButton {
+                background: #ffffff;
+                border: 1px solid #dbe3ee;
+                border-radius: 30px;
+                padding: 0px;
+            }
+            QToolButton#FloatingHelperButton:hover {
+                background: #eff6ff;
+                border-color: #93c5fd;
+            }
+            QToolButton#FloatingHelperButton:pressed {
+                background: #dbeafe;
+                border-color: #60a5fa;
+            }
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        layout.addWidget(self.status_bubble, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.icon_button, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        self._reserve_size_for_status_pill()
+        self.adjustSize()
+
+    def _reserve_size_for_status_pill(self) -> None:
+        reserved_width = self.icon_button.width()
+        reserved_height = self.icon_button.height()
+        reserved_pill_width = 0
+        reserved_pill_height = StatusPill._PILL_HEIGHT + StatusPill._NOTCH_SIZE
+
+        for sample_text in ("Thinking", "Listening", "Speaking"):
+            self.status_bubble.setText(sample_text)
+            reserved_pill_width = max(reserved_pill_width, self.status_bubble.sizeHint().width())
+
+        self.status_bubble.setText("Ready")
+        layout = self.layout()
+        layout_spacing = layout.spacing() if layout is not None else 0
+
+        reserved_width = max(reserved_width, reserved_pill_width)
+        reserved_height = reserved_height + layout_spacing + reserved_pill_height
+
+        self.setMinimumSize(reserved_width, reserved_height)
+        self.resize(reserved_width, reserved_height)
+
+    def set_status_text(self, text: str) -> None:
+        self.status_bubble.setText(text)
+        self.adjustSize()
+
+    def status_text(self) -> str:
+        return self.status_bubble.text()
+
+
+class FloatingHelperButton(QToolButton):
+    def __init__(
+        self,
+        restore_callback: Callable[[], None],
+        moved_callback: Callable[[], None],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._restore_callback = restore_callback
+        self._moved_callback = moved_callback
+        self._drag_start_global_position: QPoint | None = None
+        self._drag_start_window_position: QPoint | None = None
+        self._dragging = False
+
+    def _drag_target_widget(self) -> QWidget:
+        target = self.window()
+        if isinstance(target, QWidget):
+            return target
+
+        return self
+
+    def begin_drag(self, global_position: QPoint) -> None:
+        drag_target = self._drag_target_widget()
+        self._drag_start_global_position = global_position
+        self._drag_start_window_position = drag_target.pos()
+        self._dragging = False
+
+    def update_drag(self, global_position: QPoint) -> None:
+        if self._drag_start_global_position is None or self._drag_start_window_position is None:
+            return
+
+        delta = global_position - self._drag_start_global_position
+        if not self._dragging and delta.manhattanLength() < QApplication.startDragDistance():
+            return
+
+        if not self._dragging:
+            self._dragging = True
+            self._moved_callback()
+
+        desired_position = self._drag_start_window_position + delta
+        self._drag_target_widget().move(self._constrain_to_screen(desired_position))
+
+    def end_drag(self) -> None:
+        self._drag_start_global_position = None
+        self._drag_start_window_position = None
+        self._dragging = False
+
+    def _constrain_to_screen(self, desired_position: QPoint) -> QPoint:
+        drag_target = self._drag_target_widget()
+        screen = cast(QScreen | None, drag_target.screen()) or QGuiApplication.screenAt(desired_position) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return desired_position
+
+        return _constrain_floating_helper_position(screen.availableGeometry(), drag_target.size(), desired_position)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.begin_drag(event.globalPosition().toPoint())
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if event.buttons() & Qt.MouseButton.LeftButton:
+            self.update_drag(event.globalPosition().toPoint())
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mouseReleaseEvent(event)
+            return
+
+        was_dragging = self._dragging
+        self.end_drag()
+        if was_dragging:
+            event.accept()
+            return
+
+        super().mouseReleaseEvent(event)
+        self._restore_callback()
+
+
 class MainWindow(QMainWindow):
     HOTKEY_PRESENTATION_DELAY_MS = 250
 
@@ -59,12 +390,15 @@ class MainWindow(QMainWindow):
         self._hotkey_pending = False
         self._allow_close = False
         self._tray_icon: QSystemTrayIcon | None = None
+        self._floating_helper: QWidget | None = None
+        self._floating_helper_needs_default_position = True
         self._escape_shortcut: QShortcut | None = None
         self._initial_show_scroll_pending = True
         self._tray_hidden = False
         self._start_new_session_on_next_mode = False
         self._build_ui()
         self._create_tray_icon()
+        self._create_floating_helper()
         self._connect_signals()
         self._apply_initial_state()
 
@@ -247,14 +581,14 @@ class MainWindow(QMainWindow):
         self.input_box.submitted.connect(self._on_send_text)
 
     def _create_tray_icon(self) -> None:
+        tray_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        self.setWindowIcon(tray_icon)
+
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
 
         if QApplication.instance() is None:
             return
-
-        tray_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
-        self.setWindowIcon(tray_icon)
 
         system_tray = QSystemTrayIcon(tray_icon, self)
         system_tray.setToolTip("AI Learning Assistant")
@@ -272,6 +606,68 @@ class MainWindow(QMainWindow):
 
         self._tray_icon = system_tray
 
+    def _create_floating_helper(self) -> None:
+        helper = FloatingStatusWidget(self._restore_from_tray, self._mark_floating_helper_moved)
+        helper.hide()
+        self._floating_helper = helper
+
+    def _mark_floating_helper_moved(self) -> None:
+        self._floating_helper_needs_default_position = False
+
+    def _position_floating_helper(self) -> None:
+        helper = getattr(self, "_floating_helper", None)
+        if helper is None:
+            return
+
+        helper_adjust = getattr(helper, "adjustSize", None)
+        if callable(helper_adjust):
+            helper_adjust()
+
+        screen = cast(QScreen | None, helper.screen())
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+
+        if screen is None:
+            return
+
+        helper.move(_calculate_floating_helper_position(screen.availableGeometry(), helper.size()))
+        self._floating_helper_needs_default_position = False
+
+    def _show_floating_helper(self) -> None:
+        helper = getattr(self, "_floating_helper", None)
+        if helper is None:
+            return
+
+        if self._floating_helper_needs_default_position:
+            self._position_floating_helper()
+
+        helper.show()
+        helper.raise_()
+
+    def _update_floating_helper_status(self, text: str) -> None:
+        helper = getattr(self, "_floating_helper", None)
+        if helper is None:
+            return
+
+        set_status_text = getattr(helper, "set_status_text", None)
+        if callable(set_status_text):
+            set_status_text(text)
+
+        helper_is_visible = getattr(helper, "isVisible", None)
+        if (
+            self._floating_helper_needs_default_position
+            and callable(helper_is_visible)
+            and helper_is_visible()
+        ):
+            self._position_floating_helper()
+
+    def _hide_floating_helper(self) -> None:
+        helper = getattr(self, "_floating_helper", None)
+        if helper is None:
+            return
+
+        helper.hide()
+
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason in (
             QSystemTrayIcon.ActivationReason.Trigger,
@@ -280,6 +676,7 @@ class MainWindow(QMainWindow):
             self._restore_from_tray()
 
     def _restore_from_tray(self) -> None:
+        _call_optional_method(self, "_hide_floating_helper")
         tray_hidden = getattr(self, "_tray_hidden", False)
         if self.isMinimized() or tray_hidden:
             cursor_position = QCursor.pos()
@@ -303,9 +700,11 @@ class MainWindow(QMainWindow):
         if self._tray_icon is not None:
             self._tray_hidden = True
             self.hide()
+            _call_optional_method(self, "_show_floating_helper")
             return
 
         self.showMinimized()
+        _call_optional_method(self, "_show_floating_helper")
 
     def toggle_window_visibility(self) -> None:
         if self.isMinimized() or self._tray_hidden or not self.isVisible():
@@ -315,6 +714,7 @@ class MainWindow(QMainWindow):
         self.request_minimize_to_tray()
 
     def request_exit(self) -> None:
+        _call_optional_method(self, "_hide_floating_helper")
         self._allow_close = True
         app = QApplication.instance()
         if app is not None:
@@ -332,9 +732,11 @@ class MainWindow(QMainWindow):
         if self._tray_icon is not None:
             self._tray_hidden = True
             self.hide()
+            _call_optional_method(self, "_show_floating_helper")
             return
 
         self.showMinimized()
+        _call_optional_method(self, "_show_floating_helper")
 
     def _scroll_latest_messages_after_initial_show(self) -> None:
         if not self._initial_show_scroll_pending:
@@ -356,6 +758,9 @@ class MainWindow(QMainWindow):
 
     def _queue_hotkey_presentation(self, mode: object | None = None) -> None:
         if mode == VOICE_HOTKEY_ACTION:
+            if self.isMinimized() or getattr(self, "_tray_hidden", False):
+                return
+
             delay_ms = getattr(self, "HOTKEY_PRESENTATION_DELAY_MS", MainWindow.HOTKEY_PRESENTATION_DELAY_MS)
             QTimer.singleShot(delay_ms, self._show_for_hotkey)
             return
@@ -399,6 +804,7 @@ class MainWindow(QMainWindow):
             return
 
     def _show_for_hotkey(self) -> None:
+        _call_optional_method(self, "_hide_floating_helper")
         reposition = self.isMinimized() or getattr(self, "_tray_hidden", False)
         if reposition:
             cursor_position = QCursor.pos()
@@ -432,6 +838,9 @@ class MainWindow(QMainWindow):
     def _set_status(self, text: str) -> None:
         self.status_badge.setText(text)
         self.status_badge.setToolTip(text)
+        update_floating_helper_status = getattr(self, "_update_floating_helper_status", None)
+        if callable(update_floating_helper_status):
+            update_floating_helper_status(text)
 
     def consume_new_session_request(self) -> bool:
         pending = getattr(self, "_start_new_session_on_next_mode", False)
@@ -467,12 +876,20 @@ class MainWindow(QMainWindow):
             self.request_minimize_to_tray()
             return
 
+        _call_optional_method(self, "_hide_floating_helper")
         event.accept()
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
-        if event.type() == QEvent.Type.WindowStateChange and self.isMinimized():
+        if event.type() != QEvent.Type.WindowStateChange:
+            return
+
+        if self.isMinimized():
             self._start_new_session_on_next_mode = True
+            _call_optional_method(self, "_show_floating_helper")
+            return
+
+        _call_optional_method(self, "_hide_floating_helper")
 
     def _set_busy(self, busy: bool) -> None:
         self.send_button.setEnabled(not busy)

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 from prompts.templates import PromptMode
+import session.manager as session_manager_module
 from session.manager import SessionManager
 
 
@@ -131,3 +135,57 @@ def test_session_manager_deletes_only_session_and_creates_replacement() -> None:
     assert len(manager.list_sessions()) == 1
     assert manager.current_session().id != session.id
     assert manager.current_session().title == "New Session"
+
+
+def test_session_manager_prunes_sessions_older_than_five_days_on_load(monkeypatch) -> None:
+    now = datetime(2026, 4, 15, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(session_manager_module, "_utcnow", lambda: now)
+
+    stale_session = session_manager_module.ConversationSession(
+        title="Stale",
+        created_at=now - timedelta(days=6),
+        updated_at=now - timedelta(days=6),
+    )
+    boundary_session = session_manager_module.ConversationSession(
+        title="Boundary",
+        created_at=now - timedelta(days=5),
+        updated_at=now - timedelta(days=5),
+    )
+    recent_session = session_manager_module.ConversationSession(
+        title="Recent",
+        created_at=now - timedelta(days=2),
+        updated_at=now - timedelta(days=2),
+    )
+
+    manager = SessionManager.from_state(
+        {
+            "current_session_id": stale_session.id,
+            "sessions": [stale_session.to_dict(), boundary_session.to_dict(), recent_session.to_dict()],
+        }
+    )
+
+    assert [session.title for session in manager.list_sessions()] == ["Boundary", "Recent"]
+    assert manager.current_session().title == "Recent"
+
+
+def test_session_manager_prunes_sessions_older_than_five_days_before_save(tmp_path, monkeypatch) -> None:
+    now = datetime(2026, 4, 15, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(session_manager_module, "_utcnow", lambda: now)
+
+    manager = SessionManager()
+    current_session = manager.current_session()
+    current_session.title = "Recent"
+    stale_session = session_manager_module.ConversationSession(
+        title="Stale",
+        created_at=now - timedelta(days=6),
+        updated_at=now - timedelta(days=6),
+    )
+    manager._sessions.insert(0, stale_session)
+
+    state_path = tmp_path / "sessions.json"
+    manager.save_to_file(state_path)
+
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+
+    assert [session["title"] for session in payload["sessions"]] == ["Recent"]
+    assert payload["current_session_id"] == current_session.id

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QSize
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, QSize, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QApplication
 
 import ui.main_window as main_window_module
 
 from core.hotkey import VOICE_HOTKEY_ACTION
 from prompts.templates import PromptMode
-from ui.main_window import _calculate_hotkey_window_position
+from ui.main_window import FloatingHelperButton, _calculate_floating_helper_position, _calculate_hotkey_window_position
 from session.manager import ConversationMessage
+
+
+_APP = QApplication.instance() or QApplication([])
 
 
 def test_calculate_hotkey_window_position_places_window_on_opposite_side_of_cursor() -> None:
@@ -31,6 +36,116 @@ def test_calculate_hotkey_window_position_clamps_to_screen_bounds() -> None:
 
     assert position.x() == 100 + 700 - 480 - 16
     assert position.y() == 100 + 16
+
+
+def test_calculate_floating_helper_position_places_button_in_bottom_right() -> None:
+    geometry = QRect(0, 0, 1200, 800)
+    helper_size = QSize(60, 60)
+
+    position = _calculate_floating_helper_position(geometry, helper_size)
+
+    assert position == QPoint(1124, 724)
+
+
+def test_create_mascot_icon_uses_light_blue_background() -> None:
+    pixmap = main_window_module._create_mascot_icon().pixmap(32, 32)
+
+    assert not pixmap.isNull()
+
+    background_color = pixmap.toImage().pixelColor(4, 28)
+    assert background_color.alpha() > 0
+    assert background_color.blue() > background_color.red()
+    assert background_color.blue() > background_color.green()
+
+
+def test_floating_status_widget_tracks_status_text() -> None:
+    widget = main_window_module.FloatingStatusWidget(lambda: None, lambda: None)
+    widget.show()
+
+    assert widget.status_text() == ""
+    assert widget.status_bubble.isHidden() is True
+    assert widget.status_bubble.height() == 29
+    assert widget.size().width() > widget.icon_button.width()
+    assert widget.size().height() > widget.icon_button.height()
+
+    widget.set_status_text("Listening for speech input")
+
+    assert widget.status_text() == "Listening"
+    assert widget.status_bubble.isVisible() is True
+
+    widget.set_status_text("Ready")
+
+    assert widget.status_text() == ""
+    assert widget.status_bubble.isHidden() is True
+
+
+def test_floating_helper_button_click_requests_restore() -> None:
+    restore_calls: list[bool] = []
+    moved_calls: list[bool] = []
+    helper = FloatingHelperButton(lambda: restore_calls.append(True), lambda: moved_calls.append(True))
+    helper.resize(60, 60)
+
+    press_event = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(10, 10),
+        QPointF(110, 110),
+        QPointF(110, 110),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    release_event = QMouseEvent(
+        QEvent.Type.MouseButtonRelease,
+        QPointF(10, 10),
+        QPointF(110, 110),
+        QPointF(110, 110),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    helper.mousePressEvent(press_event)
+    helper.mouseReleaseEvent(release_event)
+
+    assert restore_calls == [True]
+    assert moved_calls == []
+
+
+def test_floating_helper_button_drag_updates_position_and_marks_helper_as_manually_moved(monkeypatch) -> None:
+    restore_calls: list[bool] = []
+    moved_calls: list[bool] = []
+    helper = FloatingHelperButton(lambda: restore_calls.append(True), lambda: moved_calls.append(True))
+    helper.resize(60, 60)
+    helper.move(100, 100)
+    monkeypatch.setattr(helper, "_constrain_to_screen", lambda desired_position: desired_position)
+
+    press_event = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(10, 10),
+        QPointF(110, 110),
+        QPointF(110, 110),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    move_event = QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(35, 45),
+        QPointF(135, 145),
+        QPointF(135, 145),
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+
+    helper.mousePressEvent(press_event)
+    helper.mouseMoveEvent(move_event)
+
+    assert moved_calls == [True]
+    assert helper.pos() == QPoint(125, 135)
+    assert restore_calls == []
+
+    helper.end_drag()
 
 
 def test_hotkey_window_waits_for_captured_user_message(monkeypatch) -> None:
@@ -232,6 +347,43 @@ def test_hotkey_window_presents_voice_mode_without_pending_prompt(monkeypatch) -
     assert scheduled == [main_window_module.MainWindow.HOTKEY_PRESENTATION_DELAY_MS]
 
 
+def test_hotkey_window_does_not_show_voice_mode_when_minimized(monkeypatch) -> None:
+    class DummyController:
+        screen_ocr_enabled = True
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self._controller = DummyController()
+            self._hotkey_pending = False
+            self.visible = False
+            self.show_calls = 0
+
+        def isMinimized(self) -> bool:
+            return True
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+        def _show_for_hotkey(self) -> None:
+            self.show_calls += 1
+            self.visible = True
+
+    window = DummyWindow()
+
+    scheduled: list[int] = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled.append(delay_ms)
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
+    main_window_module.MainWindow._queue_hotkey_presentation(window, VOICE_HOTKEY_ACTION)
+
+    assert window._hotkey_pending is False
+    assert window.show_calls == 0
+    assert scheduled == []
+
+
 def test_main_window_close_event_hides_to_tray_when_available() -> None:
     class DummyEvent:
         def __init__(self) -> None:
@@ -313,6 +465,7 @@ def test_main_window_restores_from_tray() -> None:
             self.show_normal_calls = 0
             self.raise_calls = 0
             self.activate_calls = 0
+            self.helper_hide_calls = 0
             self.transcript = DummyTranscript()
 
         def isMinimized(self) -> bool:
@@ -342,6 +495,9 @@ def test_main_window_restores_from_tray() -> None:
         def activateWindow(self) -> None:
             self.activate_calls += 1
 
+        def _hide_floating_helper(self) -> None:
+            self.helper_hide_calls += 1
+
         def _scroll_transcript_to_bottom(self) -> None:
             self.transcript.scroll_to_bottom()
 
@@ -353,6 +509,7 @@ def test_main_window_restores_from_tray() -> None:
     assert window.show_calls == 0
     assert window.raise_calls == 1
     assert window.activate_calls == 1
+    assert window.helper_hide_calls == 1
     assert window.transcript.scroll_calls == 1
 
 
@@ -667,6 +824,53 @@ def test_main_window_status_tooltip_tracks_full_text() -> None:
     assert window.status_badge.tool_tip == "Listening for speech input"
 
 
+def test_main_window_updates_floating_helper_status_bubble() -> None:
+    class DummyLabel:
+        def __init__(self) -> None:
+            self.text = ""
+            self.tool_tip = ""
+
+        def setText(self, value: str) -> None:
+            self.text = value
+
+        def setToolTip(self, value: str) -> None:
+            self.tool_tip = value
+
+    class DummyHelper:
+        def __init__(self) -> None:
+            self.visible = True
+            self.status_text = ""
+
+        def set_status_text(self, value: str) -> None:
+            self.status_text = value
+
+        def isVisible(self) -> bool:
+            return self.visible
+
+    class DummyWindow:
+        def __init__(self) -> None:
+            self.status_badge = DummyLabel()
+            self._floating_helper = main_window_module.FloatingStatusWidget(lambda: None, lambda: None)
+            self._floating_helper.show()
+            self._floating_helper_needs_default_position = True
+            self.position_calls = 0
+
+        def _position_floating_helper(self) -> None:
+            self.position_calls += 1
+
+    window = DummyWindow()
+
+    main_window_module.MainWindow._update_floating_helper_status(window, "Thinking...")
+
+    assert window._floating_helper.status_text() == "Thinking"
+    assert window.position_calls == 1
+
+    main_window_module.MainWindow._update_floating_helper_status(window, "Ready")
+
+    assert window._floating_helper.status_text() == ""
+    assert window._floating_helper.status_bubble.isHidden() is True
+
+
 def test_main_window_sends_manual_input_using_chat_mode() -> None:
     class DummyInputBox:
         def __init__(self) -> None:
@@ -743,6 +947,7 @@ def test_main_window_request_minimize_to_tray_hides_window_when_tray_exists() ->
             self._tray_icon = object()
             self.hide_calls = 0
             self.show_minimized_calls = 0
+            self.helper_show_calls = 0
 
         def hide(self) -> None:
             self.hide_calls += 1
@@ -750,12 +955,16 @@ def test_main_window_request_minimize_to_tray_hides_window_when_tray_exists() ->
         def showMinimized(self) -> None:
             self.show_minimized_calls += 1
 
+        def _show_floating_helper(self) -> None:
+            self.helper_show_calls += 1
+
     window = DummyWindow()
 
     main_window_module.MainWindow.request_minimize_to_tray(window)
 
     assert window.hide_calls == 1
     assert window.show_minimized_calls == 0
+    assert window.helper_show_calls == 1
 
 
 def test_main_window_request_minimize_to_tray_falls_back_to_taskbar_minimize() -> None:
@@ -764,6 +973,7 @@ def test_main_window_request_minimize_to_tray_falls_back_to_taskbar_minimize() -
             self._tray_icon = None
             self.hide_calls = 0
             self.show_minimized_calls = 0
+            self.helper_show_calls = 0
 
         def hide(self) -> None:
             self.hide_calls += 1
@@ -771,12 +981,16 @@ def test_main_window_request_minimize_to_tray_falls_back_to_taskbar_minimize() -
         def showMinimized(self) -> None:
             self.show_minimized_calls += 1
 
+        def _show_floating_helper(self) -> None:
+            self.helper_show_calls += 1
+
     window = DummyWindow()
 
     main_window_module.MainWindow.request_minimize_to_tray(window)
 
     assert window.hide_calls == 0
     assert window.show_minimized_calls == 1
+    assert window.helper_show_calls == 1
 
 
 def test_main_window_start_minimized_hides_window_when_tray_exists() -> None:
@@ -785,6 +999,7 @@ def test_main_window_start_minimized_hides_window_when_tray_exists() -> None:
             self._tray_icon = object()
             self.hide_calls = 0
             self.show_minimized_calls = 0
+            self.helper_show_calls = 0
 
         def hide(self) -> None:
             self.hide_calls += 1
@@ -792,12 +1007,16 @@ def test_main_window_start_minimized_hides_window_when_tray_exists() -> None:
         def showMinimized(self) -> None:
             self.show_minimized_calls += 1
 
+        def _show_floating_helper(self) -> None:
+            self.helper_show_calls += 1
+
     window = DummyWindow()
 
     main_window_module.MainWindow.start_minimized(window)
 
     assert window.hide_calls == 1
     assert window.show_minimized_calls == 0
+    assert window.helper_show_calls == 1
 
 
 def test_main_window_start_minimized_falls_back_to_taskbar_minimize() -> None:
@@ -806,6 +1025,7 @@ def test_main_window_start_minimized_falls_back_to_taskbar_minimize() -> None:
             self._tray_icon = None
             self.hide_calls = 0
             self.show_minimized_calls = 0
+            self.helper_show_calls = 0
 
         def hide(self) -> None:
             self.hide_calls += 1
@@ -813,12 +1033,16 @@ def test_main_window_start_minimized_falls_back_to_taskbar_minimize() -> None:
         def showMinimized(self) -> None:
             self.show_minimized_calls += 1
 
+        def _show_floating_helper(self) -> None:
+            self.helper_show_calls += 1
+
     window = DummyWindow()
 
     main_window_module.MainWindow.start_minimized(window)
 
     assert window.hide_calls == 0
     assert window.show_minimized_calls == 1
+    assert window.helper_show_calls == 1
 
 
 def test_main_window_updates_stop_button_with_busy_state() -> None:

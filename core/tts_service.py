@@ -61,7 +61,7 @@ except Exception:  # pragma: no cover - optional dependency during bootstrap
 
 
 class TtsService(Protocol):
-    def speak(self, text: str, *, cancel_event: Event | None = None) -> None:
+    def speak(self, text: str, *, cancel_event: Event | None = None, language: str | None = None) -> None:
         ...
 
     def stop(self) -> None:
@@ -156,7 +156,7 @@ class PiperTtsService:
         self._voice: PiperVoice | None = None
         self._fallback_engine: Any | None = None
 
-    def speak(self, text: str, *, cancel_event: Event | None = None) -> None:
+    def speak(self, text: str, *, cancel_event: Event | None = None, language: str | None = None) -> None:
         cleaned = text.strip()
         if not cleaned:
             return
@@ -314,7 +314,7 @@ class ChatterboxTtsService:
         self._model: Any | None = None
         self._fallback_engine: Any | None = None
 
-    def speak(self, text: str, *, cancel_event: Event | None = None) -> None:
+    def speak(self, text: str, *, cancel_event: Event | None = None, language: str | None = None) -> None:
         cleaned = text.strip()
         if not cleaned:
             return
@@ -506,7 +506,7 @@ class VieneuTtsService:
         self._config = replace(self._config, voice_name=resolved_voice_name)
         self._voice = None
 
-    def speak(self, text: str, *, cancel_event: Event | None = None) -> None:
+    def speak(self, text: str, *, cancel_event: Event | None = None, language: str | None = None) -> None:
         cleaned = text.strip()
         if not cleaned:
             return
@@ -800,7 +800,7 @@ class F5TtsService:
         self._reference_audio_path: Path | None = None
         self._fallback_engine: Any | None = None
 
-    def speak(self, text: str, *, cancel_event: Event | None = None) -> None:
+    def speak(self, text: str, *, cancel_event: Event | None = None, language: str | None = None) -> None:
         cleaned = text.strip()
         if not cleaned:
             return
@@ -1042,7 +1042,7 @@ class MmsTtsService:
         self._device: str | None = None
         self._fallback_engine: Any | None = None
 
-    def speak(self, text: str, *, cancel_event: Event | None = None) -> None:
+    def speak(self, text: str, *, cancel_event: Event | None = None, language: str | None = None) -> None:
         cleaned = text.strip()
         if not cleaned:
             return

@@ -9,7 +9,10 @@ a = Analysis(
     ["main.py"],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[(str(project_root / "configs" / "llm_api"), "configs/llm_api")],
+    datas=[
+        (str(project_root / "configs" / "llm_api"), "configs/llm_api"),
+        (str(project_root / "assets"), "assets"),
+    ],
     hiddenimports=[
         "av",
         "ctranslate2",

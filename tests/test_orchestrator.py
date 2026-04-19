@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from core.audio_recorder import RecordedAudio
+from core.audio_recorder import RecordedAudio, VoiceCaptureError
 from core.orchestrator import AppController
 from core.config import ProviderConfig
 from core.voice_catalog import DEFAULT_VIETNAMESE_STT_MODEL_ID, DEFAULT_VIETNAMESE_TTS_MODEL_ID, DEFAULT_VIETNAMESE_TTS_VOICE_NAME, F5_VIETNAMESE_TTS_MODEL_ID, PHOWHISPER_MEDIUM_STT_MODEL_ID, VIETNAMESE_TTS_VOICE_CHOICES
@@ -89,15 +89,33 @@ class FailingScreenOcrService:
 
 
 class FakeVoiceRecorder:
-    def __init__(self, recording: RecordedAudio) -> None:
-        self.recording = recording
+    def __init__(self, recordings: RecordedAudio | list[RecordedAudio | Exception]) -> None:
+        if isinstance(recordings, list):
+            self._recordings = list(recordings)
+        else:
+            self._recordings = [recordings]
         self.record_calls = 0
+        self.record_kwargs: list[dict[str, object | None]] = []
         self.cancel_calls = 0
 
-    def record_until_silence(self, cancel_event=None) -> RecordedAudio:
+    def record_until_silence(self, cancel_event=None, *, initial_timeout_seconds=None) -> RecordedAudio:
         self.record_calls += 1
         self.last_cancel_event = cancel_event
-        return self.recording
+        self.record_kwargs.append(
+            {
+                "cancel_event": cancel_event,
+                "initial_timeout_seconds": initial_timeout_seconds,
+            }
+        )
+
+        if not self._recordings:
+            raise VoiceCaptureError("No speech detected.")
+
+        next_result = self._recordings.pop(0)
+        if isinstance(next_result, Exception):
+            raise next_result
+
+        return next_result
 
     def cancel_current_request(self) -> None:
         self.cancel_calls += 1
@@ -304,7 +322,7 @@ def test_handle_voice_hotkey_records_transcribes_streams_and_speaks(monkeypatch)
 
     provider = FakeProvider()
     recording = RecordedAudio(samples=np.ones(1600, dtype=np.float32), sample_rate=16000)
-    voice_recorder = FakeVoiceRecorder(recording)
+    voice_recorder = FakeVoiceRecorder([recording, VoiceCaptureError("No speech detected.")])
     stt_service = FakeSttService("Hello from voice")
     tts_service = FakeTtsService()
     controller = AppController(
@@ -321,7 +339,9 @@ def test_handle_voice_hotkey_records_transcribes_streams_and_speaks(monkeypatch)
 
     session = controller.current_session
 
-    assert voice_recorder.record_calls == 1
+    assert voice_recorder.record_calls == 2
+    assert voice_recorder.record_kwargs[0]["initial_timeout_seconds"] is None
+    assert voice_recorder.record_kwargs[1]["initial_timeout_seconds"] == controller.VOICE_FOLLOW_UP_IDLE_TIMEOUT_SECONDS
     assert len(stt_service.calls) == 1
     assert stt_service.calls[0][0].sample_rate == 16000
     assert stt_service.calls[0][2] == "Vietnamese"
@@ -338,6 +358,7 @@ def test_handle_voice_hotkey_records_transcribes_streams_and_speaks(monkeypatch)
     assert "avoid markdown" in provider.requests[0][0][0].content.lower()
     assert provider.requests[0][0][-1].content == "Hello from voice"
     assert "Listening..." in statuses
+    assert statuses.count("Listening...") == 2
     assert "Transcribing..." in statuses
     assert "Thinking..." in statuses
     assert "Speaking..." in statuses

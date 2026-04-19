@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, Mapping
@@ -13,6 +13,9 @@ from llm.base import LLMMessage
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+SESSION_RETENTION = timedelta(days=5)
 
 
 def _summarize_title(text: str, limit: int = 48) -> str:
@@ -95,6 +98,9 @@ class ConversationSession:
     updated_at: datetime = field(default_factory=_utcnow)
     messages: list[ConversationMessage] = field(default_factory=list)
 
+    def touch(self) -> None:
+        self.updated_at = _utcnow()
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
@@ -145,7 +151,7 @@ class ConversationSession:
             include_in_context=include_in_context,
         )
         self.messages.append(message)
-        self.updated_at = _utcnow()
+        self.touch()
 
         if role == "user" and self.title == "New Session" and content.strip():
             self.title = _format_title(title_prefix, content)
@@ -157,7 +163,7 @@ class ConversationSession:
             if message.id == message_id:
                 message.include_in_context = include_in_context
                 message.updated_at = _utcnow()
-                self.updated_at = message.updated_at
+                self.touch()
                 return message
         raise KeyError(f"Unknown message id: {message_id}")
 
@@ -166,7 +172,7 @@ class ConversationSession:
             if message.id == message_id:
                 message.content = content
                 message.updated_at = _utcnow()
-                self.updated_at = message.updated_at
+                self.touch()
                 return message
         raise KeyError(f"Unknown message id: {message_id}")
 
@@ -175,7 +181,7 @@ class ConversationSession:
             if message.id == message_id:
                 message.screen_context = screen_context.strip()
                 message.updated_at = _utcnow()
-                self.updated_at = message.updated_at
+                self.touch()
                 return message
         raise KeyError(f"Unknown message id: {message_id}")
 
@@ -212,8 +218,30 @@ class SessionManager:
         self._sessions: list[ConversationSession] = []
         self._current_session: ConversationSession | None = None
 
+    def _prune_stale_sessions_locked(self) -> None:
+        cutoff = _utcnow() - SESSION_RETENTION
+        retained_sessions = [session for session in self._sessions if session.updated_at >= cutoff]
+        if len(retained_sessions) == len(self._sessions):
+            return
+
+        current_session_id = self._current_session.id if self._current_session else None
+        self._sessions = retained_sessions
+
+        if current_session_id is not None:
+            self._current_session = next((session for session in retained_sessions if session.id == current_session_id), None)
+
+        if self._current_session is None and self._sessions:
+            self._current_session = max(self._sessions, key=lambda session: session.updated_at)
+
+    def _ensure_current_session_locked(self) -> ConversationSession:
+        if self._current_session is None:
+            self._current_session = ConversationSession()
+            self._sessions.append(self._current_session)
+        return self._current_session
+
     def create_session(self, title: str | None = None) -> ConversationSession:
         with self._lock:
+            self._prune_stale_sessions_locked()
             session = ConversationSession(title=title or "New Session")
             self._sessions.append(session)
             self._current_session = session
@@ -221,6 +249,7 @@ class SessionManager:
 
     def delete_session(self, session_id: str) -> ConversationSession:
         with self._lock:
+            self._prune_stale_sessions_locked()
             for index, session in enumerate(self._sessions):
                 if session.id != session_id:
                     continue
@@ -240,6 +269,7 @@ class SessionManager:
 
     def select_session(self, session_id: str) -> ConversationSession:
         with self._lock:
+            self._prune_stale_sessions_locked()
             for session in self._sessions:
                 if session.id == session_id:
                     self._current_session = session
@@ -248,12 +278,13 @@ class SessionManager:
 
     def current_session(self) -> ConversationSession:
         with self._lock:
-            if self._current_session is None:
-                self._current_session = self.create_session()
-            return self._current_session
+            self._prune_stale_sessions_locked()
+            return self._ensure_current_session_locked()
 
     def list_sessions(self) -> list[ConversationSession]:
         with self._lock:
+            self._prune_stale_sessions_locked()
+            self._ensure_current_session_locked()
             return list(self._sessions)
 
     def append_message(
@@ -305,8 +336,10 @@ class SessionManager:
 
     def export_state(self) -> dict[str, Any]:
         with self._lock:
+            self._prune_stale_sessions_locked()
+            current_session = self._ensure_current_session_locked()
             return {
-                "current_session_id": self._current_session.id if self._current_session else None,
+                "current_session_id": current_session.id,
                 "sessions": [session.to_dict() for session in self._sessions],
             }
 
@@ -325,11 +358,13 @@ class SessionManager:
             sessions = [ConversationSession()]
 
         current_session_id = state.get("current_session_id")
-        current_session = next((session for session in sessions if session.id == current_session_id), sessions[-1])
 
         with self._lock:
             self._sessions = sessions
-            self._current_session = current_session
+            self._current_session = next((session for session in sessions if session.id == current_session_id), sessions[-1])
+            self._prune_stale_sessions_locked()
+            if self._current_session is None:
+                self._current_session = max(self._sessions, key=lambda session: session.updated_at) if self._sessions else self._ensure_current_session_locked()
 
     @classmethod
     def from_state(cls, state: Mapping[str, Any]) -> "SessionManager":
