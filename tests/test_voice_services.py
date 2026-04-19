@@ -255,9 +255,12 @@ def test_build_default_voice_services_uses_requested_voice_models(monkeypatch, t
     stt_service.transcribe("audio", language="Vietnamese")
     tts_service.speak("Xin chao", language="Vietnamese")
 
-    assert len(RecordingSttService.instances) == 2
+    assert len(RecordingSttService.instances) == 3
+    english_service = next(service for service in RecordingSttService.instances if service.model_id == voice_services.DEFAULT_ENGLISH_STT_MODEL_ID)
     zipformer_service = next(service for service in RecordingSttService.instances if service.model_id == DEFAULT_VIETNAMESE_STT_MODEL_ID)
     phowhisper_service = next(service for service in RecordingSttService.instances if service.model_id == PHOWHISPER_MEDIUM_STT_MODEL_ID)
+    assert english_service.calls == []
+    assert english_service.config.language == "en"
     assert zipformer_service.calls == []
     assert phowhisper_service.calls == [("audio", None, "vi")]
 

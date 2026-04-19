@@ -23,6 +23,7 @@ EXIT_HOTKEY_ACTION = "exit"
 VOICE_HOTKEY_ACTION = "voice"
 TOGGLE_LANGUAGE_HOTKEY_ACTION = "toggle_language"
 TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION = "toggle_window_visibility"
+TOGGLE_WAKE_WORD_HOTKEY_ACTION = "toggle_wake_word"
 
 _MODIFIER_TOKENS = {
     "<alt>": _MOD_ALT,
@@ -246,6 +247,7 @@ class GlobalHotkeyListener(QObject):
                 "<alt>+e": PromptMode.EXPLAIN,
                 "<alt>+s": PromptMode.SUMMARY,
                 "<alt>+v": VOICE_HOTKEY_ACTION,
+                "<alt>+w": TOGGLE_WAKE_WORD_HOTKEY_ACTION,
                 "<alt>+h": TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
                 "<alt>+l": TOGGLE_LANGUAGE_HOTKEY_ACTION,
                 "<alt>+x": EXIT_HOTKEY_ACTION,

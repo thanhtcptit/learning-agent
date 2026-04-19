@@ -62,6 +62,9 @@ def test_build_voice_messages_uses_plain_speech_style() -> None:
     assert "plain natural speech" in messages[0].content.lower()
     assert "avoid markdown" in messages[0].content.lower()
     assert "special characters" in messages[0].content.lower()
+    assert "search_and_play" in messages[0].content
+    assert "open_url" not in messages[0].content
+    assert "open_site" not in messages[0].content
     voice_core = messages[0].content.split("\n\n")[0]
     assert voice_core.count(":") == 0
     assert messages[1].role == "user"

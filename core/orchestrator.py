@@ -41,6 +41,7 @@ class AppController(QObject):
     voice_stt_model_changed = Signal(str)
     voice_tts_model_changed = Signal(str)
     voice_tts_voice_name_changed = Signal(str)
+    wake_word_active_changed = Signal(bool)
     status_changed = Signal(str)
     error_occurred = Signal(str)
     busy_changed = Signal(bool)
@@ -60,6 +61,7 @@ class AppController(QObject):
         stt_service: Any | None = None,
         tts_service: Any | None = None,
         session_manager: SessionManager | None = None,
+        wake_word_service: Any | None = None,
     ) -> None:
         super().__init__()
         self._provider = provider
@@ -90,6 +92,9 @@ class AppController(QObject):
             DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
         )
         self._screen_ocr_enabled = bool(screen_ocr_enabled)
+        self._wake_word_service = wake_word_service
+        if self._wake_word_service is not None:
+            self._wake_word_service.wake_word_detected.connect(self._on_wake_word_detected)
         self._generation_lock = threading.Lock()
         self._active_request = False
         self._active_cancel_event: threading.Event | None = None
@@ -359,7 +364,39 @@ class AppController(QObject):
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def toggle_wake_word(self) -> None:
+        if self._wake_word_service is None:
+            self.status_changed.emit("Wake-word service not available")
+            return
+
+        if self._wake_word_service.is_listening:
+            self._wake_word_service.stop_listening()
+            self.wake_word_active_changed.emit(False)
+            self.status_changed.emit("Wake word disabled")
+        else:
+            self._wake_word_service.start_listening()
+            self.wake_word_active_changed.emit(True)
+            self.status_changed.emit(f"Wake word enabled: \"{self._wake_word_service.wake_word}\"")
+
+    @property
+    def wake_word_active(self) -> bool:
+        return self._wake_word_service is not None and self._wake_word_service.is_listening
+
+    def _on_wake_word_detected(self) -> None:
+        if self._is_busy():
+            return
+        session = self._session_manager.current_session()
+        if session.messages:
+            self._session_manager.create_session()
+        self.handle_voice_hotkey()
+
+    def _resume_wake_word_listening(self) -> None:
+        if self._wake_word_service is not None and not self._wake_word_service._stop_event.is_set():
+            self._wake_word_service.resume()
+
     def shutdown(self) -> None:
+        if self._wake_word_service is not None:
+            self._wake_word_service.stop_listening()
         self.stop_current_request()
         self.status_changed.emit("Shutting down")
 
@@ -497,12 +534,20 @@ class AppController(QObject):
                         return
 
                     self.status_changed.emit("Thinking...")
-                    response_text = self._run_streamed_response(user_message.id, assistant_message.id, request_messages, cancel_event)
+                    response_text, suppress_tts = self._run_streamed_response(
+                        user_message.id,
+                        assistant_message.id,
+                        request_messages,
+                        cancel_event,
+                    )
                     if response_text is None:
                         return
 
                     if cancel_event.is_set():
                         self.status_changed.emit("Request stopped")
+                        return
+
+                    if suppress_tts:
                         return
 
                     self.status_changed.emit("Speaking...")
@@ -524,6 +569,7 @@ class AppController(QObject):
 
             finally:
                 self._end_request()
+                self._resume_wake_word_listening()
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -656,28 +702,29 @@ class AppController(QObject):
         assistant_message_id: str,
         messages: Sequence[LLMMessage],
         cancel_event: threading.Event,
-    ) -> str | None:
+    ) -> tuple[str | None, bool]:
         response_text = ""
+        suppress_tts = False
 
         try:
             for chunk in self._provider.stream_chat(messages, cancel_event=cancel_event):
                 if cancel_event.is_set():
                     self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
-                    return None
+                    return None, False
                 response_text += chunk
                 updated_message = self._session_manager.update_message(assistant_message_id, response_text)
                 self.message_upserted.emit(updated_message)
 
             if cancel_event.is_set():
                 self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
-                return None
+                return None, False
 
             if not response_text.strip():
                 response_text = "No response received."
                 updated_message = self._session_manager.update_message(assistant_message_id, response_text)
                 self.message_upserted.emit(updated_message)
 
-            cleaned_text, action_results = extract_and_execute_actions(response_text)
+            cleaned_text, action_results, suppress_tts = extract_and_execute_actions(response_text)
             if action_results:
                 if cleaned_text != response_text:
                     updated_message = self._session_manager.update_message(assistant_message_id, cleaned_text)
@@ -685,11 +732,11 @@ class AppController(QObject):
                 response_text = cleaned_text
 
             self.status_changed.emit("Ready")
-            return response_text
+            return response_text, suppress_tts
         except Exception as exc:  # noqa: BLE001 - surface provider failures to the UI
             if cancel_event.is_set():
                 self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
-                return None
+                return None, False
 
             error_text = f"LLM request failed: {exc}"
             try:
@@ -699,7 +746,7 @@ class AppController(QObject):
                 pass
             self.error_occurred.emit(error_text)
             self.status_changed.emit("Error")
-            return None
+            return None, False
 
     def _begin_request(self) -> threading.Event | None:
         with self._generation_lock:

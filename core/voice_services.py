@@ -39,6 +39,7 @@ from core.voice_catalog import (
 
 DEFAULT_VIETNAMESE_STT_LANGUAGE = "vi"
 DEFAULT_VIETNAMESE_TTS_CODEC_REPO = "neuphonic/distill-neucodec"
+DEFAULT_ENGLISH_STT_MODEL_ID = "openai/whisper-large-v3-turbo"
 
 
 def _coerce_bool(value: Any, default: bool = False) -> bool:
@@ -159,6 +160,28 @@ def _preferred_tts_device() -> str:
         return "cuda"
 
     return "cpu"
+
+
+def _build_english_stt_service() -> SttService:
+    model_name_or_path = (os.getenv("LEARNING_AGENT_VOICE_STT_MODEL") or DEFAULT_ENGLISH_STT_MODEL_ID).strip() or DEFAULT_ENGLISH_STT_MODEL_ID
+    if not model_name_or_path.startswith("openai/"):
+        return WhisperSttService(
+            WhisperSttConfig(
+                model_size_or_path=model_name_or_path,
+                device=os.getenv("LEARNING_AGENT_VOICE_STT_DEVICE", "cpu"),
+                compute_type=os.getenv("LEARNING_AGENT_VOICE_STT_COMPUTE_TYPE", "int8"),
+            )
+        )
+
+    cache_dir = _voice_model_cache_dir(model_name_or_path)
+    return PhoWhisperSttService(
+        PhoWhisperSttConfig(
+            model_name_or_path=model_name_or_path,
+            device=os.getenv("LEARNING_AGENT_VOICE_STT_DEVICE", "cpu"),
+            cache_dir=str(cache_dir) if cache_dir is not None else None,
+            language="en",
+        )
+    )
 
 
 class LanguageAwareSttService:
@@ -374,13 +397,7 @@ def build_default_voice_services(
     recorder = AudioRecorder(AudioRecorderConfig())
     tts_device = _preferred_tts_device()
 
-    default_stt_service = WhisperSttService(
-        WhisperSttConfig(
-            model_size_or_path=os.getenv("LEARNING_AGENT_VOICE_STT_MODEL", "base"),
-            device=os.getenv("LEARNING_AGENT_VOICE_STT_DEVICE", "cpu"),
-            compute_type=os.getenv("LEARNING_AGENT_VOICE_STT_COMPUTE_TYPE", "int8"),
-        )
-    )
+    default_stt_service = _build_english_stt_service()
 
     selected_stt_model_id = resolve_voice_model_id(
         voice_stt_model_id or os.getenv("LEARNING_AGENT_VOICE_STT_VI_MODEL"),

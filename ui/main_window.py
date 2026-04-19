@@ -93,9 +93,23 @@ _STATUS_COLORS: dict[str, tuple[str, str, str]] = {
     "Speaking": ("#059669", "#34d399", "#ecfdf5"),
 }
 
+_LANGUAGE_STATUS_PREFIXES = ("language switched to ", "language set to ")
+
+
+def _extract_language_status_text(text: str) -> str | None:
+    stripped = text.strip()
+    lowered = stripped.lower()
+    for prefix in _LANGUAGE_STATUS_PREFIXES:
+        if lowered.startswith(prefix):
+            language = stripped[len(prefix):].strip()
+            return language or None
+
+    return None
+
 
 def _normalize_floating_status_text(text: str) -> str | None:
-    lowered = text.strip().lower()
+    stripped = text.strip()
+    lowered = stripped.lower()
     if "think" in lowered:
         return "Thinking"
 
@@ -104,6 +118,10 @@ def _normalize_floating_status_text(text: str) -> str | None:
 
     if "speak" in lowered:
         return "Speaking"
+
+    language_text = _extract_language_status_text(text)
+    if language_text is not None:
+        return language_text
 
     return None
 
@@ -215,6 +233,8 @@ class StatusPill(QFrame):
 
 
 class FloatingStatusWidget(QWidget):
+    LANGUAGE_BUBBLE_AUTO_HIDE_MS = 3000
+
     def __init__(
         self,
         restore_callback: Callable[[], None],
@@ -232,6 +252,7 @@ class FloatingStatusWidget(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self.status_bubble = StatusPill("Ready", self)
+        self._status_bubble_hide_token = 0
         self.icon_button = FloatingHelperButton(restore_callback, moved_callback, self)
         self.icon_button.setObjectName("FloatingHelperButton")
         self.icon_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -292,6 +313,20 @@ class FloatingStatusWidget(QWidget):
 
     def set_status_text(self, text: str) -> None:
         self.status_bubble.setText(text)
+        self._status_bubble_hide_token += 1
+        hide_token = self._status_bubble_hide_token
+        if _extract_language_status_text(text) is not None:
+            QTimer.singleShot(
+                self.LANGUAGE_BUBBLE_AUTO_HIDE_MS,
+                lambda: self._hide_status_bubble_if_current(hide_token),
+            )
+        self.adjustSize()
+
+    def _hide_status_bubble_if_current(self, hide_token: int) -> None:
+        if hide_token != self._status_bubble_hide_token:
+            return
+
+        self.status_bubble.setText("Ready")
         self.adjustSize()
 
     def status_text(self) -> str:

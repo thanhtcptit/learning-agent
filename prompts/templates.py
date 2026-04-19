@@ -8,20 +8,15 @@ from llm.base import LLMMessage
 DEFAULT_TARGET_LANGUAGE = "Vietnamese"
 
 _BROWSER_ACTION_INSTRUCTIONS = (
-    "\n\nYou can open web pages for the user. When the user asks you to open a website, search for something online, "
-    "or play media, include a browser action block in your reply.\n"
+    "\n\nYou can open a YouTube video for the user. When the user asks you to play media on YouTube, include a browser action block in your reply.\n"
     "Format:\n"
     "<<<BROWSER_ACTION>>>{\"action\": \"<action_type>\", ...}<<<END_ACTION>>>\n\n"
     "Available actions:\n"
-    "- open_url: Open a specific URL. Fields: {\"action\": \"open_url\", \"url\": \"https://...\"}\n"
-    "- search: Search on a site. Fields: {\"action\": \"search\", \"site\": \"youtube|google|github|stackoverflow|wikipedia|reddit|maps\", \"query\": \"search terms\"}\n"
     "- search_and_play: Search YouTube and auto-play the first video result. Fields: {\"action\": \"search_and_play\", \"query\": \"search terms\"}\n"
-    "- open_site: Open a website homepage. Fields: {\"action\": \"open_site\", \"site\": \"youtube|google|github|gmail|maps|...\"}\n\n"
-    "When the user asks to play, listen to, or watch something on YouTube, prefer search_and_play over search.\n\n"
+    "\n"
+    "When the user asks to play, listen to, or watch something on YouTube, prefer search_and_play.\n\n"
     "Examples:\n"
     "- User: 'play piano music on youtube' → Include <<<BROWSER_ACTION>>>{\"action\": \"search_and_play\", \"query\": \"piano music\"}<<<END_ACTION>>> in your reply.\n"
-    "- User: 'search google for Python tutorials' → Include <<<BROWSER_ACTION>>>{\"action\": \"search\", \"site\": \"google\", \"query\": \"Python tutorials\"}<<<END_ACTION>>> in your reply.\n"
-    "- User: 'open github' → Include <<<BROWSER_ACTION>>>{\"action\": \"open_site\", \"site\": \"github\"}<<<END_ACTION>>> in your reply.\n"
     "Place the action block at the end of your reply. You may include a short conversational message before it."
 )
 

@@ -47,9 +47,12 @@ class SttService(Protocol):
         ...
 
 
+DEFAULT_WHISPER_STT_MODEL_ID = "base"
+
+
 @dataclass(frozen=True)
 class WhisperSttConfig:
-    model_size_or_path: str = "base"
+    model_size_or_path: str = DEFAULT_WHISPER_STT_MODEL_ID
     device: str = "cpu"
     compute_type: str = "int8"
     cpu_threads: int = 0

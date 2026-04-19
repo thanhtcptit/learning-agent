@@ -80,7 +80,7 @@ class ScreenOcrService:
                         if cropped_focus_block is not None:
                             cropped_focus_blocks = self._collect_line_blocks(cropped_blocks, cropped_focus_block)
                             if cropped_focus_blocks:
-                                pass
+                                context_blocks = cropped_focus_blocks
 
             context_text = self._join_blocks(context_blocks)
             return self._combine_selection_and_context(selected_text, context_text)

@@ -36,6 +36,20 @@ class FakeProvider:
         yield "lo"
 
 
+class BrowserActionProvider:
+    model = "fake-model"
+
+    def __init__(self) -> None:
+        self.requests = []
+
+    def stream_chat(self, messages, *, temperature=None, cancel_event=None):
+        self.requests.append((list(messages), temperature))
+        yield (
+            "Playing the first YouTube result.\n"
+            '<<<BROWSER_ACTION>>>{"action": "search_and_play", "query": "piano music"}<<<END_ACTION>>>'
+        )
+
+
 class CancellableProvider:
     model = "fake-model"
 
@@ -365,6 +379,38 @@ def test_handle_voice_hotkey_records_transcribes_streams_and_speaks(monkeypatch)
     assert statuses[-1] == "Ready"
 
 
+def test_handle_voice_hotkey_skips_tts_for_youtube_play_action(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+    monkeypatch.setattr("core.browser_service._fetch_first_youtube_video_url", lambda query: "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    monkeypatch.setattr("core.browser_service.webbrowser.open", lambda url: None)
+
+    provider = BrowserActionProvider()
+    recording = RecordedAudio(samples=np.ones(1600, dtype=np.float32), sample_rate=16000)
+    voice_recorder = FakeVoiceRecorder([recording])
+    stt_service = FakeSttService("Play piano music on YouTube")
+    tts_service = FakeTtsService()
+    controller = AppController(
+        provider,
+        voice_recorder=voice_recorder,
+        stt_service=stt_service,
+        tts_service=tts_service,
+    )
+
+    statuses: list[str] = []
+    controller.status_changed.connect(statuses.append)
+
+    controller.handle_voice_hotkey()
+
+    session = controller.current_session
+
+    assert voice_recorder.record_calls == 1
+    assert tts_service.speak_calls == []
+    assert session.messages[1].role == "assistant"
+    assert session.messages[1].content == "Playing the first YouTube result."
+    assert "Speaking..." not in statuses
+    assert statuses[-1] == "Ready"
+
+
 def test_set_voice_model_ids_updates_selected_services() -> None:
     provider = FakeProvider()
     stt_service = FakeVoiceSttService("Hello from voice")
@@ -527,3 +573,125 @@ def test_stop_current_request_excludes_cancelled_turn_from_followup_context() ->
     assert request_messages[0].role == "system"
     assert request_messages[1].role == "user"
     assert request_messages[1].content == "Second question"
+
+
+# ---------------------------------------------------------------------------
+# Wake-word integration
+# ---------------------------------------------------------------------------
+
+
+class FakeWakeWordService:
+    def __init__(self) -> None:
+        self.start_calls = 0
+        self.stop_calls = 0
+        self.pause_calls = 0
+        self.resume_calls = 0
+        self._listening = False
+        self._stop_event = threading.Event()
+
+    class _Signal:
+        def __init__(self):
+            self._cb = None
+
+        def connect(self, cb):
+            self._cb = cb
+
+        def emit(self):
+            if self._cb:
+                self._cb()
+
+    wake_word_detected = _Signal()
+    listening_state_changed = _Signal()
+
+    @property
+    def wake_word(self) -> str:
+        return "Mario"
+
+    @property
+    def is_listening(self) -> bool:
+        return self._listening
+
+    def start_listening(self) -> None:
+        self.start_calls += 1
+        self._listening = True
+        self._stop_event.clear()
+
+    def stop_listening(self) -> None:
+        self.stop_calls += 1
+        self._listening = False
+        self._stop_event.set()
+
+    def pause(self) -> None:
+        self.pause_calls += 1
+
+    def resume(self) -> None:
+        self.resume_calls += 1
+
+
+def test_toggle_wake_word_starts_and_stops_service() -> None:
+    provider = FakeProvider()
+    wake_svc = FakeWakeWordService()
+    controller = AppController(provider, wake_word_service=wake_svc)
+
+    statuses: list[str] = []
+    controller.status_changed.connect(statuses.append)
+    active_states: list[bool] = []
+    controller.wake_word_active_changed.connect(active_states.append)
+
+    controller.toggle_wake_word()
+    assert wake_svc.start_calls == 1
+    assert active_states == [True]
+    assert any("Mario" in s for s in statuses)
+
+    controller.toggle_wake_word()
+    assert wake_svc.stop_calls == 1
+    assert active_states == [True, False]
+
+
+def test_toggle_wake_word_without_service_emits_status() -> None:
+    provider = FakeProvider()
+    controller = AppController(provider)
+
+    statuses: list[str] = []
+    controller.status_changed.connect(statuses.append)
+
+    controller.toggle_wake_word()
+    assert any("not available" in s for s in statuses)
+
+
+def test_wake_word_detected_triggers_voice_mode(monkeypatch) -> None:
+    monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
+
+    recording = RecordedAudio(samples=np.zeros(16000, dtype=np.float32), sample_rate=16000)
+    provider = FakeProvider()
+    voice_recorder = FakeVoiceRecorder(recording)
+    stt_service = FakeSttService("Hello from wake word")
+    tts_service = FakeTtsService()
+    wake_svc = FakeWakeWordService()
+
+    controller = AppController(
+        provider,
+        voice_recorder=voice_recorder,
+        stt_service=stt_service,
+        tts_service=tts_service,
+        wake_word_service=wake_svc,
+    )
+
+    # Simulate wake word detection
+    controller._on_wake_word_detected()
+
+    assert voice_recorder.record_calls >= 1
+    assert stt_service.calls[0][0] == recording
+    assert tts_service.speak_calls[0][0] == "Hello"
+    # resume should have been called in the finally block
+    assert wake_svc.resume_calls >= 1
+
+
+def test_shutdown_stops_wake_word_service() -> None:
+    provider = FakeProvider()
+    wake_svc = FakeWakeWordService()
+    wake_svc.start_listening()
+    controller = AppController(provider, wake_word_service=wake_svc)
+
+    controller.shutdown()
+    assert wake_svc.stop_calls >= 1

@@ -109,8 +109,9 @@ def test_screen_ocr_service_filters_to_relevant_text_when_selection_is_provided(
 
             return (
                 [
-                    [[[0.0, 0.0], [50.0, 0.0], [50.0, 10.0], [0.0, 10.0]], "Linear algebra", "0.99"],
-                    [[[0.0, 20.0], [70.0, 20.0], [70.0, 30.0], [0.0, 30.0]], "Vector spaces and matrices", "0.97"],
+                    [[[0.0, 0.0], [20.0, 0.0], [20.0, 10.0], [0.0, 10.0]], "Noise header", "0.91"],
+                    [[[0.0, 20.0], [50.0, 20.0], [50.0, 30.0], [0.0, 30.0]], "Linear algebra", "0.99"],
+                    [[[0.0, 40.0], [70.0, 40.0], [70.0, 50.0], [0.0, 50.0]], "Vector spaces and matrices", "0.97"],
                 ],
                 [0.1, 0.2, 0.3],
             )

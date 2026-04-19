@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import core.stt_service as stt_module
 from core.audio_recorder import RecordedAudio
-from core.stt_service import PhoWhisperSttConfig, PhoWhisperSttService, ZipformerTransducerSttConfig, ZipformerTransducerSttService
+from core.stt_service import DEFAULT_WHISPER_STT_MODEL_ID, PhoWhisperSttConfig, PhoWhisperSttService, WhisperSttConfig, ZipformerTransducerSttConfig, ZipformerTransducerSttService
 
 
 class FakeTensor:
@@ -166,6 +166,10 @@ def test_phowhisper_stt_service_uses_transformers_model(monkeypatch) -> None:
     assert model.eval_calls == 1
     assert model.generate_calls[0][1]["num_beams"] == 5
     assert model.generate_calls[0][1]["max_new_tokens"] == 256
+
+
+def test_whisper_stt_config_defaults_to_openai_whisper_large_v3_turbo() -> None:
+    assert WhisperSttConfig().model_size_or_path == DEFAULT_WHISPER_STT_MODEL_ID
 
 
 def test_zipformer_transducer_stt_service_uses_sherpa_onnx_transducer(monkeypatch, tmp_path) -> None:

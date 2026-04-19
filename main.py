@@ -19,6 +19,7 @@ from core.config import build_provider, load_provider_config
 from core.hotkey import (
     EXIT_HOTKEY_ACTION,
     TOGGLE_LANGUAGE_HOTKEY_ACTION,
+    TOGGLE_WAKE_WORD_HOTKEY_ACTION,
     TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
     VOICE_HOTKEY_ACTION,
     GlobalHotkeyListener,
@@ -26,6 +27,7 @@ from core.hotkey import (
 from core.orchestrator import AppController
 from core.screen_ocr import ScreenOcrService
 from core.voice_services import build_default_voice_services
+from core.wake_word_service import WakeWordService
 from core.runtime_paths import get_runtime_file_path
 from prompts.templates import PromptMode
 from session.manager import SessionManager
@@ -50,6 +52,10 @@ class HotkeyActionRouter(QObject):
 
         if action == TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION:
             self._window.toggle_window_visibility()
+            return
+
+        if action == TOGGLE_WAKE_WORD_HOTKEY_ACTION:
+            self._controller.toggle_wake_word()
             return
 
         if action == VOICE_HOTKEY_ACTION:
@@ -131,6 +137,8 @@ def main() -> int:
         voice_tts_voice_name=app_settings.voice_tts_voice_name,
     )
 
+    wake_word_service = WakeWordService()
+
     controller = AppController(
         provider,
         provider_config=provider_config,
@@ -143,6 +151,7 @@ def main() -> int:
         stt_service=stt_service,
         tts_service=tts_service,
         session_manager=session_manager,
+        wake_word_service=wake_word_service,
     )
 
     hotkey_listener = GlobalHotkeyListener()

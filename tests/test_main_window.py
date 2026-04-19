@@ -73,7 +73,52 @@ def test_floating_status_widget_tracks_status_text() -> None:
     assert widget.status_text() == "Listening"
     assert widget.status_bubble.isVisible() is True
 
+    widget.set_status_text("Language switched to Vietnamese")
+
+    assert widget.status_text() == "Vietnamese"
+    assert widget.status_bubble.isVisible() is True
+
+    widget.set_status_text("Language set to English")
+
+    assert widget.status_text() == "English"
+    assert widget.status_bubble.isVisible() is True
+
     widget.set_status_text("Ready")
+
+    assert widget.status_text() == ""
+    assert widget.status_bubble.isHidden() is True
+
+
+def test_floating_status_widget_hides_language_status_after_timeout(monkeypatch) -> None:
+    widget = main_window_module.FloatingStatusWidget(lambda: None, lambda: None)
+    widget.show()
+
+    scheduled_callbacks = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled_callbacks.append((delay_ms, callback))
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
+    widget.set_status_text("Language switched to Vietnamese")
+
+    assert widget.status_text() == "Vietnamese"
+    assert widget.status_bubble.isVisible() is True
+    assert scheduled_callbacks == [(3000, scheduled_callbacks[0][1])]
+
+    widget.set_status_text("Listening for speech input")
+    scheduled_callbacks[0][1]()
+
+    assert widget.status_text() == "Listening"
+    assert widget.status_bubble.isVisible() is True
+
+    widget.set_status_text("Language set to English")
+
+    assert widget.status_text() == "English"
+    assert widget.status_bubble.isVisible() is True
+    assert len(scheduled_callbacks) == 2
+
+    scheduled_callbacks[1][1]()
 
     assert widget.status_text() == ""
     assert widget.status_bubble.isHidden() is True
