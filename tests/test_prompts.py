@@ -62,7 +62,8 @@ def test_build_voice_messages_uses_plain_speech_style() -> None:
     assert "plain natural speech" in messages[0].content.lower()
     assert "avoid markdown" in messages[0].content.lower()
     assert "special characters" in messages[0].content.lower()
-    assert messages[0].content.count(":") == 0
+    voice_core = messages[0].content.split("\n\n")[0]
+    assert voice_core.count(":") == 0
     assert messages[1].role == "user"
     assert messages[1].content == "Explain this in Vietnamese"
 

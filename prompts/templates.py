@@ -7,6 +7,22 @@ from llm.base import LLMMessage
 
 DEFAULT_TARGET_LANGUAGE = "Vietnamese"
 
+_BROWSER_ACTION_INSTRUCTIONS = (
+    "\n\nYou can open web pages for the user. When the user asks you to open a website, search for something online, "
+    "or play media, include a browser action block in your reply.\n"
+    "Format:\n"
+    "<<<BROWSER_ACTION>>>{\"action\": \"<action_type>\", ...}<<<END_ACTION>>>\n\n"
+    "Available actions:\n"
+    "- open_url: Open a specific URL. Fields: {\"action\": \"open_url\", \"url\": \"https://...\"}\n"
+    "- search: Search on a site. Fields: {\"action\": \"search\", \"site\": \"youtube|google|github|stackoverflow|wikipedia|reddit|maps\", \"query\": \"search terms\"}\n"
+    "- open_site: Open a website homepage. Fields: {\"action\": \"open_site\", \"site\": \"youtube|google|github|gmail|maps|...\"}\n\n"
+    "Examples:\n"
+    "- User: 'open youtube and play piano music' → Include <<<BROWSER_ACTION>>>{\"action\": \"search\", \"site\": \"youtube\", \"query\": \"piano music\"}<<<END_ACTION>>> in your reply.\n"
+    "- User: 'search google for Python tutorials' → Include <<<BROWSER_ACTION>>>{\"action\": \"search\", \"site\": \"google\", \"query\": \"Python tutorials\"}<<<END_ACTION>>> in your reply.\n"
+    "- User: 'open github' → Include <<<BROWSER_ACTION>>>{\"action\": \"open_site\", \"site\": \"github\"}<<<END_ACTION>>> in your reply.\n"
+    "Place the action block at the end of your reply. You may include a short conversational message before it."
+)
+
 
 class PromptMode(str, Enum):
     DEFINITION = "definition"
@@ -74,6 +90,7 @@ def build_chat_messages(text: str, target_language: str = DEFAULT_TARGET_LANGUAG
     system_prompt = (
         "You are a helpful conversational assistant. Continue the conversation naturally and answer in "
         f"{target_language}. Be concise when possible and use the prior conversation as context."
+        + _BROWSER_ACTION_INSTRUCTIONS
     )
 
     return [
@@ -88,6 +105,7 @@ def build_voice_messages(text: str, target_language: str = DEFAULT_TARGET_LANGUA
         f"{target_language} using plain natural speech that sounds good when spoken aloud. "
         "Keep the reply short, warm, and conversational. Use complete sentences and avoid markdown, list markers, code blocks, tables, and other formatting symbols. "
         "Do not use special characters or formatting. Return only the spoken answer."
+        + _BROWSER_ACTION_INSTRUCTIONS
     )
 
     return [

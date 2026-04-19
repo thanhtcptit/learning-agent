@@ -6,6 +6,7 @@ from typing import Any, Callable, Sequence
 from PySide6.QtCore import QObject, Signal
 
 from core.audio_recorder import AudioRecorder, RecordedAudio, VoiceCaptureCancelled, VoiceCaptureError
+from core.browser_service import extract_and_execute_actions
 from core.clipboard import ClipboardService
 from core.config import ProviderConfig, build_provider
 from core.screen_ocr import ScreenOcrService
@@ -675,6 +676,13 @@ class AppController(QObject):
                 response_text = "No response received."
                 updated_message = self._session_manager.update_message(assistant_message_id, response_text)
                 self.message_upserted.emit(updated_message)
+
+            cleaned_text, action_results = extract_and_execute_actions(response_text)
+            if action_results:
+                if cleaned_text != response_text:
+                    updated_message = self._session_manager.update_message(assistant_message_id, cleaned_text)
+                    self.message_upserted.emit(updated_message)
+                response_text = cleaned_text
 
             self.status_changed.emit("Ready")
             return response_text
