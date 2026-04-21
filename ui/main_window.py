@@ -94,6 +94,12 @@ _STATUS_COLORS: dict[str, tuple[str, str, str]] = {
 }
 
 _LANGUAGE_STATUS_PREFIXES = ("language switched to ", "language set to ")
+_WAKE_WORD_STATUS_PREFIXES = ("wake word enabled", "wake word disabled")
+_MODE_STATUS_DISPLAY_TEXT: dict[str, str] = {
+    PromptMode.DEFINITION.label.lower(): "Defining",
+    PromptMode.EXPLAIN.label.lower(): "Explaining",
+    PromptMode.SUMMARY.label.lower(): "Summarizing",
+}
 
 
 def _extract_language_status_text(text: str) -> str | None:
@@ -105,6 +111,41 @@ def _extract_language_status_text(text: str) -> str | None:
             return language or None
 
     return None
+
+
+def _extract_wake_word_status_text(text: str) -> str | None:
+    lowered = text.strip().lower()
+    for prefix in _WAKE_WORD_STATUS_PREFIXES:
+        if lowered.startswith(prefix):
+            if prefix.endswith("enabled"):
+                return "Wake word enabled"
+            return "Wake word disabled"
+
+    return None
+
+
+def _extract_mode_status_text(text: str) -> str | None:
+    lowered = text.strip().lower()
+    for prefix in ("capturing selection for ", "scanning screen for ocr context for "):
+        if not lowered.startswith(prefix):
+            continue
+
+        mode_label = lowered[len(prefix):].strip()
+        return _MODE_STATUS_DISPLAY_TEXT.get(mode_label)
+
+    return None
+
+
+def _extract_temporary_floating_status_text(text: str) -> str | None:
+    language_text = _extract_language_status_text(text)
+    if language_text is not None:
+        return language_text
+
+    wake_word_text = _extract_wake_word_status_text(text)
+    if wake_word_text is not None:
+        return wake_word_text
+
+    return _extract_mode_status_text(text)
 
 
 def _normalize_floating_status_text(text: str) -> str | None:
@@ -119,9 +160,9 @@ def _normalize_floating_status_text(text: str) -> str | None:
     if "speak" in lowered:
         return "Speaking"
 
-    language_text = _extract_language_status_text(text)
-    if language_text is not None:
-        return language_text
+    temporary_text = _extract_temporary_floating_status_text(text)
+    if temporary_text is not None:
+        return temporary_text
 
     return None
 
@@ -233,7 +274,7 @@ class StatusPill(QFrame):
 
 
 class FloatingStatusWidget(QWidget):
-    LANGUAGE_BUBBLE_AUTO_HIDE_MS = 3000
+    TEMPORARY_BUBBLE_AUTO_HIDE_MS = 3000
 
     def __init__(
         self,
@@ -297,7 +338,7 @@ class FloatingStatusWidget(QWidget):
         reserved_pill_width = 0
         reserved_pill_height = StatusPill._PILL_HEIGHT + StatusPill._NOTCH_SIZE
 
-        for sample_text in ("Thinking", "Listening", "Speaking"):
+        for sample_text in ("Thinking", "Listening", "Speaking", "Wake word disabled", "Defining", "Explaining", "Summarizing"):
             self.status_bubble.setText(sample_text)
             reserved_pill_width = max(reserved_pill_width, self.status_bubble.sizeHint().width())
 
@@ -315,9 +356,9 @@ class FloatingStatusWidget(QWidget):
         self.status_bubble.setText(text)
         self._status_bubble_hide_token += 1
         hide_token = self._status_bubble_hide_token
-        if _extract_language_status_text(text) is not None:
+        if _extract_temporary_floating_status_text(text) is not None:
             QTimer.singleShot(
-                self.LANGUAGE_BUBBLE_AUTO_HIDE_MS,
+                self.TEMPORARY_BUBBLE_AUTO_HIDE_MS,
                 lambda: self._hide_status_bubble_if_current(hide_token),
             )
         self.adjustSize()

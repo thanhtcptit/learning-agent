@@ -124,6 +124,60 @@ def test_floating_status_widget_hides_language_status_after_timeout(monkeypatch)
     assert widget.status_bubble.isHidden() is True
 
 
+def test_floating_status_widget_hides_wake_word_status_after_timeout(monkeypatch) -> None:
+    widget = main_window_module.FloatingStatusWidget(lambda: None, lambda: None)
+    widget.show()
+
+    scheduled_callbacks = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled_callbacks.append((delay_ms, callback))
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
+    widget.set_status_text('Wake word enabled: "Mario"')
+
+    assert widget.status_text() == "Wake word enabled"
+    assert widget.status_bubble.isVisible() is True
+    assert scheduled_callbacks == [(3000, scheduled_callbacks[0][1])]
+
+    scheduled_callbacks[0][1]()
+
+    assert widget.status_text() == ""
+    assert widget.status_bubble.isHidden() is True
+
+
+def test_floating_status_widget_hides_hotkey_mode_status_after_timeout(monkeypatch) -> None:
+    widget = main_window_module.FloatingStatusWidget(lambda: None, lambda: None)
+    widget.show()
+
+    scheduled_callbacks = []
+
+    def fake_single_shot(delay_ms: int, callback) -> None:
+        scheduled_callbacks.append((delay_ms, callback))
+
+    monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
+
+    cases = [
+        ("Capturing selection for Definition", "Defining"),
+        ("Capturing selection for Explain", "Explaining"),
+        ("Capturing selection for Summary", "Summarizing"),
+    ]
+
+    for status_text, expected_text in cases:
+        widget.set_status_text(status_text)
+
+        assert widget.status_text() == expected_text
+        assert widget.status_bubble.isVisible() is True
+
+        delay_ms, callback = scheduled_callbacks[-1]
+        assert delay_ms == 3000
+        callback()
+
+        assert widget.status_text() == ""
+        assert widget.status_bubble.isHidden() is True
+
+
 def test_floating_helper_button_click_requests_restore() -> None:
     restore_calls: list[bool] = []
     moved_calls: list[bool] = []

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 import threading
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -96,6 +97,26 @@ def test_contains_wake_word():
     assert svc._contains_wake_word("mario")
     assert not svc._contains_wake_word("Hey Luigi")
     assert not svc._contains_wake_word("")
+
+
+def test_transcribe_chunk_prints_stt_output(monkeypatch):
+    loud_samples = np.full(1600, 0.1, dtype=np.float32)
+    printed: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_print(*args, **kwargs) -> None:
+        printed.append((args, kwargs))
+
+    monkeypatch.setattr(builtins, "print", fake_print)
+
+    svc = WakeWordService(
+        config=WakeWordConfig(wake_word="Mario"),
+        model_factory=lambda: FakeWhisperModel(transcription="Hey Mario"),
+    )
+
+    transcription = svc._transcribe_chunk(loud_samples)
+
+    assert transcription == "Hey Mario"
+    assert printed == [(("Wake-word STT output: 'Hey Mario'",), {"flush": True})]
 
 
 def test_has_speech_above_threshold():

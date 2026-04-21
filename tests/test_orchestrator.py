@@ -285,7 +285,7 @@ def test_handle_hotkey_includes_screen_ocr_context_for_definition_mode(monkeypat
     assert user_prompt.endswith("Define the following word or term:\n\nHighlighted text")
 
 
-def test_handle_hotkey_skips_screen_ocr_for_explain_mode(monkeypatch) -> None:
+def test_handle_hotkey_includes_screen_ocr_context_for_explain_mode(monkeypatch) -> None:
     monkeypatch.setattr("core.orchestrator.threading.Thread", ImmediateThread)
 
     provider = FakeProvider()
@@ -301,10 +301,11 @@ def test_handle_hotkey_skips_screen_ocr_for_explain_mode(monkeypatch) -> None:
     controller.handle_hotkey(PromptMode.EXPLAIN)
 
     assert clipboard.capture_calls == 1
-    assert screen_ocr.capture_calls == []
-    assert controller.current_session.messages[0].screen_context == ""
+    assert screen_ocr.capture_calls == ["Highlighted text"]
+    assert controller.current_session.messages[0].screen_context == "Toolbar label: Linear algebra"
     user_prompt = provider.requests[0][0][-1].content
-    assert "Screen OCR context from the current screen" not in user_prompt
+    assert "Screen OCR context from the current screen" in user_prompt
+    assert "Toolbar label: Linear algebra" in user_prompt
     assert user_prompt.endswith("Explain the following text:\n\nHighlighted text")
 
 

@@ -173,7 +173,10 @@ class WakeWordService(QObject):
             text = segment.text.strip()
             if text:
                 parts.append(text)
-        return " ".join(parts).strip()
+
+        transcription = " ".join(parts).strip()
+        print(f"Wake-word STT output: {transcription!r}", flush=True)
+        return transcription
 
     def _contains_wake_word(self, text: str) -> bool:
         return self._config.wake_word.lower() in text.lower()
