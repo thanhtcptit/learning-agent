@@ -13,7 +13,8 @@ from core.screen_ocr import ScreenOcrService
 from core.stt_service import WhisperSttService
 from core.tts_service import ChatterboxTtsService
 from llm.base import LLMMessage, LLMProvider
-from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages, build_voice_messages
+import pyperclip
+from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages, build_rewrite_messages, build_voice_messages
 from core.voice_catalog import (
     DEFAULT_VIETNAMESE_STT_MODEL_ID,
     DEFAULT_VIETNAMESE_TTS_MODEL_ID,
@@ -360,6 +361,69 @@ class AppController(QObject):
             except Exception as exc:  # noqa: BLE001 - capture failures should be surfaced to the UI
                 self.error_occurred.emit(f"Clipboard capture failed: {exc}")
                 self.status_changed.emit("Error")
+                self._end_request()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def handle_rewrite_hotkey(self) -> None:
+        if self._is_busy():
+            self.status_changed.emit("A response is already in progress")
+            return
+
+        cancel_event = self._begin_request()
+        if cancel_event is None:
+            self.status_changed.emit("A response is already in progress")
+            return
+
+        self.busy_changed.emit(True)
+        self.status_changed.emit("Capturing selection for Rewrite")
+
+        def worker() -> None:
+            try:
+                text = self._clipboard_service.capture_selection()
+                if not text.strip():
+                    self.status_changed.emit("Rewrite: no text captured")
+                    return
+
+                if cancel_event.is_set():
+                    self.status_changed.emit("Request stopped")
+                    return
+
+                self.status_changed.emit("Rewriting...")
+                request_messages = build_rewrite_messages(text)
+
+                result_text = ""
+                try:
+                    for chunk in self._provider.stream_chat(request_messages, cancel_event=cancel_event):
+                        if cancel_event.is_set():
+                            self.status_changed.emit("Request stopped")
+                            return
+                        result_text += chunk
+                except Exception as exc:
+                    self.error_occurred.emit(f"LLM request failed: {exc}")
+                    self.status_changed.emit("Error")
+                    return
+
+                if cancel_event.is_set():
+                    self.status_changed.emit("Request stopped")
+                    return
+
+                rewritten = result_text.strip()
+                if not rewritten:
+                    rewritten = text
+
+                try:
+                    pyperclip.copy(rewritten)
+                except Exception as exc:  # noqa: BLE001
+                    self.error_occurred.emit(f"Failed to copy rewrite result to clipboard: {exc}")
+                    self.status_changed.emit("Error")
+                    return
+
+                self.status_changed.emit("Rewrite complete")
+            except Exception as exc:  # noqa: BLE001
+                self.error_occurred.emit(f"Rewrite failed: {exc}")
+                self.status_changed.emit("Error")
+            finally:
                 self._end_request()
 
         threading.Thread(target=worker, daemon=True).start()

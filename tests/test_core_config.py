@@ -67,13 +67,15 @@ def test_load_provider_config_reads_openai_tooling_options(tmp_path) -> None:
 
 
 def test_load_provider_config_uses_bundle_default_path_when_frozen(monkeypatch, tmp_path) -> None:
-    config_dir = tmp_path / "configs" / "llm_api" / "qwen"
+    config_dir = tmp_path / "configs" / "llm_api" / "gpt"
     config_dir.mkdir(parents=True)
-    (config_dir / "qwen3.6-plus.json").write_text(
+    (config_dir / "gpt-4.1-mini.json").write_text(
         json.dumps([
             {
-                "provider": "openrouter",
-                "model": "qwen/qwen3.6-plus:free",
+                "provider": "openai",
+                "model": "gpt-4.1-mini",
+                "base_url": "https://api.openai.com/v1",
+                "api_key_env": "OPENAI_API_KEY",
             }
         ]),
         encoding="utf-8",
@@ -84,9 +86,9 @@ def test_load_provider_config_uses_bundle_default_path_when_frozen(monkeypatch, 
     monkeypatch.setattr(runtime_paths.sys, "executable", str(tmp_path / "learning-agent.exe"), raising=False)
 
     assert get_llm_api_root() == tmp_path / "configs" / "llm_api"
-    assert get_default_provider_config_path() == config_dir / "qwen3.6-plus.json"
+    assert get_default_provider_config_path() == config_dir / "gpt-4.1-mini.json"
 
     config = load_provider_config()
 
-    assert config.provider == "openrouter"
-    assert config.model == "qwen/qwen3.6-plus:free"
+    assert config.provider == "openai"
+    assert config.model == "gpt-4.1-mini"

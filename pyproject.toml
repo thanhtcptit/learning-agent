@@ -7,7 +7,7 @@ name = "learning-agent"
 version = "0.1.0"
 description = "Windows AI learning assistant"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "PySide6>=6.6",
     "httpx>=0.27",
@@ -17,7 +17,7 @@ dependencies = [
     "pyperclip>=1.9",
     "python-dotenv>=1.0",
     "huggingface-hub>=1.0",
-    "torch>=2.7.0",
+    "torch>=2.6.0",
     "transformers>=4.48.0",
     "pyttsx3>=2.98",
     "faster-whisper>=1.2.1",
@@ -25,13 +25,16 @@ dependencies = [
     "piper-tts>=1.4.2",
     "sherpa-onnx>=1.12.38",
     "vieneu>=2.4.3",
-    "neucodec>=0.0.5",
     "torchao>=0.17.0",
     "rapidocr-onnxruntime>=1.2.3",
+    "onnxruntime>=1.0,<1.24",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+
+[tool.uv]
+extra-index-url = ["https://pnnbao97.github.io/llama-cpp-python-v0.3.16/cpu/"]
 
 [tool.setuptools]
 py-modules = ["main"]

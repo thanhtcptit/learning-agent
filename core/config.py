@@ -17,7 +17,7 @@ def get_llm_api_root() -> Path:
 
 
 def get_default_provider_config_path() -> Path:
-    return get_llm_api_root() / "qwen" / "qwen3.6-plus.json"
+    return get_llm_api_root() / "gpt" / "gpt-4.1-mini.json"
 
 
 DEFAULT_LLM_API_ROOT = get_llm_api_root()

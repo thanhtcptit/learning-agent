@@ -245,6 +245,7 @@ class GlobalHotkeyListener(QObject):
             or {
                 "<alt>+d": PromptMode.DEFINITION,
                 "<alt>+e": PromptMode.EXPLAIN,
+                "<alt>+r": PromptMode.REWRITE,
                 "<alt>+s": PromptMode.SUMMARY,
                 "<alt>+v": VOICE_HOTKEY_ACTION,
                 "<alt>+w": TOGGLE_WAKE_WORD_HOTKEY_ACTION,

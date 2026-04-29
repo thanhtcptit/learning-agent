@@ -91,14 +91,20 @@ _STATUS_COLORS: dict[str, tuple[str, str, str]] = {
     "Thinking": ("#7c3aed", "#a78bfa", "#f5f3ff"),
     "Listening": ("#2563eb", "#60a5fa", "#eff6ff"),
     "Speaking": ("#059669", "#34d399", "#ecfdf5"),
+    "Rewriting": ("#d97706", "#fbbf24", "#fffbeb"),
 }
 
 _LANGUAGE_STATUS_PREFIXES = ("language switched to ", "language set to ")
 _WAKE_WORD_STATUS_PREFIXES = ("wake word enabled", "wake word disabled")
+_REWRITE_TEMPORARY_STATUSES: dict[str, str] = {
+    "rewrite complete": "Rewrite complete",
+    "rewrite: no text captured": "No text captured",
+}
 _MODE_STATUS_DISPLAY_TEXT: dict[str, str] = {
     PromptMode.DEFINITION.label.lower(): "Defining",
     PromptMode.EXPLAIN.label.lower(): "Explaining",
     PromptMode.SUMMARY.label.lower(): "Summarizing",
+    PromptMode.REWRITE.label.lower(): "Rewriting",
 }
 
 
@@ -136,6 +142,10 @@ def _extract_mode_status_text(text: str) -> str | None:
     return None
 
 
+def _extract_rewrite_status_text(text: str) -> str | None:
+    return _REWRITE_TEMPORARY_STATUSES.get(text.strip().lower())
+
+
 def _extract_temporary_floating_status_text(text: str) -> str | None:
     language_text = _extract_language_status_text(text)
     if language_text is not None:
@@ -144,6 +154,10 @@ def _extract_temporary_floating_status_text(text: str) -> str | None:
     wake_word_text = _extract_wake_word_status_text(text)
     if wake_word_text is not None:
         return wake_word_text
+
+    rewrite_text = _extract_rewrite_status_text(text)
+    if rewrite_text is not None:
+        return rewrite_text
 
     return _extract_mode_status_text(text)
 
@@ -163,6 +177,9 @@ def _normalize_floating_status_text(text: str) -> str | None:
     temporary_text = _extract_temporary_floating_status_text(text)
     if temporary_text is not None:
         return temporary_text
+
+    if "rewrite" in lowered or "rewriting" in lowered:
+        return "Rewriting"
 
     return None
 
@@ -842,6 +859,9 @@ class MainWindow(QMainWindow):
             return
 
         if not isinstance(mode, PromptMode) and mode is not None:
+            return
+
+        if mode is PromptMode.REWRITE:
             return
 
         self._hotkey_pending = True

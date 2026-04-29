@@ -64,6 +64,10 @@ class HotkeyActionRouter(QObject):
             self._controller.handle_voice_hotkey()
             return
 
+        if action is PromptMode.REWRITE:
+            self._controller.handle_rewrite_hotkey()
+            return
+
         if isinstance(action, PromptMode):
             if not self._controller.is_busy and self._window.consume_new_session_request():
                 self._controller.create_session()

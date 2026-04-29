@@ -25,6 +25,7 @@ class PromptMode(str, Enum):
     DEFINITION = "definition"
     EXPLAIN = "explain"
     SUMMARY = "summary"
+    REWRITE = "rewrite"
 
     @property
     def label(self) -> str:
@@ -32,7 +33,9 @@ class PromptMode(str, Enum):
             return "Definition"
         if self is PromptMode.EXPLAIN:
             return "Explain"
-        return "Summary"
+        if self is PromptMode.SUMMARY:
+            return "Summary"
+        return "Rewrite"
 
 
 def _build_screen_context_prefix(screen_context: str | None) -> str:
@@ -80,6 +83,19 @@ def build_messages(
     return [
         LLMMessage(role="system", content=system_prompt),
         LLMMessage(role="user", content=user_prompt),
+    ]
+
+
+def build_rewrite_messages(text: str) -> list[LLMMessage]:
+    system_prompt = (
+        "You are a professional editor. Fix any typos, spelling mistakes, and grammar errors in the text the user provides. "
+        "If the text would benefit from it, also improve fluency, clarity, and structural coherence. "
+        "Preserve the original language and tone. "
+        "Output ONLY the rewritten text — no explanations, no commentary, no quotation marks around the result."
+    )
+    return [
+        LLMMessage(role="system", content=system_prompt),
+        LLMMessage(role="user", content=text),
     ]
 
 
