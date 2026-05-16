@@ -92,6 +92,7 @@ _STATUS_COLORS: dict[str, tuple[str, str, str]] = {
     "Listening": ("#2563eb", "#60a5fa", "#eff6ff"),
     "Speaking": ("#059669", "#34d399", "#ecfdf5"),
     "Rewriting": ("#d97706", "#fbbf24", "#fffbeb"),
+    "Processing": ("#0891b2", "#22d3ee", "#ecfeff"),
 }
 
 _LANGUAGE_STATUS_PREFIXES = ("language switched to ", "language set to ")
@@ -173,6 +174,9 @@ def _normalize_floating_status_text(text: str) -> str | None:
 
     if "speak" in lowered:
         return "Speaking"
+
+    if "process" in lowered:
+        return "Processing"
 
     temporary_text = _extract_temporary_floating_status_text(text)
     if temporary_text is not None:
@@ -355,7 +359,7 @@ class FloatingStatusWidget(QWidget):
         reserved_pill_width = 0
         reserved_pill_height = StatusPill._PILL_HEIGHT + StatusPill._NOTCH_SIZE
 
-        for sample_text in ("Thinking", "Listening", "Speaking", "Wake word disabled", "Defining", "Explaining", "Summarizing"):
+        for sample_text in ("Thinking", "Listening", "Speaking", "Processing", "Wake word disabled", "Defining", "Explaining", "Summarizing"):
             self.status_bubble.setText(sample_text)
             reserved_pill_width = max(reserved_pill_width, self.status_bubble.sizeHint().width())
 
@@ -663,6 +667,7 @@ class MainWindow(QMainWindow):
         self._controller.busy_changed.connect(self._set_busy)
         self._controller.current_language_changed.connect(self._set_current_language)
         self._controller.status_changed.connect(self._set_status)
+        self._controller.prompt_response_ready.connect(self._show_for_hotkey)
         self._hotkey_listener.hotkey_triggered.connect(self._queue_hotkey_presentation)
 
         self._escape_shortcut = QShortcut(QKeySequence("Esc"), self)

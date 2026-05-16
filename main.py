@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, Slot
+from PySide6.QtCore import QObject, Signal, Slot
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 try:
@@ -16,14 +17,17 @@ except ImportError:  # pragma: no cover - optional during bootstrap
 
 from core.app_settings import AppSettings, load_app_settings, save_app_settings
 from core.config import build_provider, load_provider_config
+from core.clipboard import ClipboardService
 from core.hotkey import (
     EXIT_HOTKEY_ACTION,
+    PROMPT_HOTKEY_ACTION,
     TOGGLE_LANGUAGE_HOTKEY_ACTION,
     TOGGLE_WAKE_WORD_HOTKEY_ACTION,
     TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
     VOICE_HOTKEY_ACTION,
     GlobalHotkeyListener,
 )
+from ui.prompt_input_dialog import PromptInputDialog
 from core.orchestrator import AppController
 from core.screen_ocr import ScreenOcrService
 from core.voice_services import build_default_voice_services
@@ -35,10 +39,14 @@ from ui.main_window import MainWindow
 
 
 class HotkeyActionRouter(QObject):
+    _prompt_selection_ready = Signal(str)
+
     def __init__(self, controller: Any, window: Any) -> None:
         super().__init__()
         self._controller = controller
         self._window = window
+        self._clipboard_service = ClipboardService()
+        self._prompt_selection_ready.connect(self._on_prompt_selection_ready)
 
     @Slot(object)
     def handle_action(self, action: object) -> None:
@@ -64,6 +72,13 @@ class HotkeyActionRouter(QObject):
             self._controller.handle_voice_hotkey()
             return
 
+        if action == PROMPT_HOTKEY_ACTION:
+            if self._controller.is_busy:
+                self._controller.status_changed.emit("A response is already in progress")
+                return
+            threading.Thread(target=self._capture_for_prompt, daemon=True).start()
+            return
+
         if action is PromptMode.REWRITE:
             self._controller.handle_rewrite_hotkey()
             return
@@ -72,6 +87,40 @@ class HotkeyActionRouter(QObject):
             if not self._controller.is_busy and self._window.consume_new_session_request():
                 self._controller.create_session()
             self._controller.handle_hotkey(action)
+
+    def _capture_for_prompt(self) -> None:
+        try:
+            captured_text = self._clipboard_service.capture_selection()
+        except Exception:  # noqa: BLE001
+            captured_text = ""
+        self._prompt_selection_ready.emit(captured_text)
+
+    @Slot(str)
+    def _on_prompt_selection_ready(self, captured_text: str) -> None:
+        if not captured_text.strip():
+            self._controller.status_changed.emit("No text captured")
+            return
+
+        dialog = PromptInputDialog()
+        dialog.show_near_cursor()
+        result = dialog.exec()
+
+        if result != PromptInputDialog.DialogCode.Accepted:
+            return
+
+        user_prompt = dialog.prompt_text()
+        if not user_prompt:
+            return
+
+        # Show the floating status bubble immediately ("Processing") rather than
+        # opening the chat window — the window opens when the response is ready.
+        show_floating_helper = getattr(self._window, "_show_floating_helper", None)
+        if callable(show_floating_helper):
+            show_floating_helper()
+
+        if not self._controller.is_busy and self._window.consume_new_session_request():
+            self._controller.create_session()
+        self._controller.handle_prompt_hotkey(captured_text, user_prompt)
 
 
 def _default_session_state_path() -> Path:

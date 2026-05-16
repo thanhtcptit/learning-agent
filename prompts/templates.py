@@ -125,3 +125,19 @@ def build_voice_messages(text: str, target_language: str = DEFAULT_TARGET_LANGUA
         LLMMessage(role="system", content=system_prompt),
         LLMMessage(role="user", content=text),
     ]
+
+
+def build_prompt_messages(
+    selected_text: str,
+    user_prompt: str,
+    target_language: str = DEFAULT_TARGET_LANGUAGE,
+) -> list[LLMMessage]:
+    system_prompt = (
+        "You are a helpful assistant. Follow the user's instructions and apply them to the provided text. "
+        f"Respond in {target_language}."
+    )
+    user_content = f"{user_prompt}\n\n{selected_text}"
+    return [
+        LLMMessage(role="system", content=system_prompt),
+        LLMMessage(role="user", content=user_content),
+    ]

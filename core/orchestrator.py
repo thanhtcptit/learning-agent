@@ -14,7 +14,7 @@ from core.stt_service import WhisperSttService
 from core.tts_service import ChatterboxTtsService
 from llm.base import LLMMessage, LLMProvider
 import pyperclip
-from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages, build_rewrite_messages, build_voice_messages
+from prompts.templates import DEFAULT_TARGET_LANGUAGE, PromptMode, build_chat_messages, build_messages, build_prompt_messages, build_rewrite_messages, build_voice_messages
 from core.voice_catalog import (
     DEFAULT_VIETNAMESE_STT_MODEL_ID,
     DEFAULT_VIETNAMESE_TTS_MODEL_ID,
@@ -46,6 +46,7 @@ class AppController(QObject):
     status_changed = Signal(str)
     error_occurred = Signal(str)
     busy_changed = Signal(bool)
+    prompt_response_ready = Signal()
 
     def __init__(
         self,
@@ -422,6 +423,84 @@ class AppController(QObject):
                 self.status_changed.emit("Rewrite complete")
             except Exception as exc:  # noqa: BLE001
                 self.error_occurred.emit(f"Rewrite failed: {exc}")
+                self.status_changed.emit("Error")
+            finally:
+                self._end_request()
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def handle_prompt_hotkey(self, selected_text: str, user_prompt: str) -> None:
+        if self._is_busy():
+            self.status_changed.emit("A response is already in progress")
+            return
+
+        cancel_event = self._begin_request()
+        if cancel_event is None:
+            self.status_changed.emit("A response is already in progress")
+            return
+
+        self.busy_changed.emit(True)
+        self.status_changed.emit("Processing")
+
+        user_message_content = f"{user_prompt}\n\n---\n{selected_text}"
+        session = self._session_manager.current_session()
+
+        def worker() -> None:
+            try:
+                if cancel_event.is_set():
+                    self._end_request()
+                    return
+
+                user_message = session.append_message(
+                    "user",
+                    user_message_content,
+                    mode="prompt",
+                    screen_context="",
+                    title_prefix="Prompt",
+                )
+                self.message_upserted.emit(user_message)
+                self._emit_sessions_changed()
+
+                assistant_message = session.append_message("assistant", "", mode="prompt")
+                self.message_upserted.emit(assistant_message)
+
+                if cancel_event.is_set():
+                    self._finalize_cancelled_request(user_message.id, assistant_message.id, "")
+                    return
+
+                request_messages = build_prompt_messages(selected_text, user_prompt, self._target_language)
+                response_text = ""
+                try:
+                    for chunk in self._provider.stream_chat(request_messages, cancel_event=cancel_event):
+                        if cancel_event.is_set():
+                            self._finalize_cancelled_request(user_message.id, assistant_message.id, response_text)
+                            return
+                        response_text += chunk
+                        updated_message = self._session_manager.update_message(assistant_message.id, response_text)
+                        self.message_upserted.emit(updated_message)
+                except Exception as exc:  # noqa: BLE001
+                    self.error_occurred.emit(f"LLM request failed: {exc}")
+                    self.status_changed.emit("Error")
+                    return
+
+                if cancel_event.is_set():
+                    self._finalize_cancelled_request(user_message.id, assistant_message.id, response_text)
+                    return
+
+                if not response_text.strip():
+                    response_text = "No response received."
+                    updated_message = self._session_manager.update_message(assistant_message.id, response_text)
+                    self.message_upserted.emit(updated_message)
+
+                try:
+                    pyperclip.copy(response_text.strip())
+                except Exception as exc:  # noqa: BLE001
+                    self.error_occurred.emit(f"Failed to copy response to clipboard: {exc}")
+
+                self.prompt_response_ready.emit()
+                self.status_changed.emit("Ready")
+            except Exception as exc:  # noqa: BLE001
+                self.error_occurred.emit(f"Prompt hotkey failed: {exc}")
                 self.status_changed.emit("Error")
             finally:
                 self._end_request()
