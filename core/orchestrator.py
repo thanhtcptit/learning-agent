@@ -47,6 +47,7 @@ class AppController(QObject):
     error_occurred = Signal(str)
     busy_changed = Signal(bool)
     hotkey_response_ready = Signal()
+    use_free_llm_changed = Signal(bool)
 
     def __init__(
         self,
@@ -57,6 +58,7 @@ class AppController(QObject):
         default_mode: PromptMode = PromptMode.EXPLAIN,
         target_language: str = DEFAULT_TARGET_LANGUAGE,
         screen_ocr_enabled: bool = False,
+        use_free_llm: bool = False,
         clipboard_service: ClipboardService | None = None,
         screen_ocr_service: ScreenOcrService | None = None,
         voice_recorder: AudioRecorder | None = None,
@@ -94,6 +96,12 @@ class AppController(QObject):
             DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
         )
         self._screen_ocr_enabled = bool(screen_ocr_enabled)
+        self._use_free_llm = bool(use_free_llm)
+        if self._use_free_llm:
+            from core.free_llm_manager import FreeLLMManager
+            self._free_llm_manager: Any = FreeLLMManager(self._provider_factory)
+        else:
+            self._free_llm_manager = None
         self._wake_word_service = wake_word_service
         if self._wake_word_service is not None:
             self._wake_word_service.wake_word_detected.connect(self._on_wake_word_detected)
@@ -118,6 +126,22 @@ class AppController(QObject):
     @property
     def screen_ocr_enabled(self) -> bool:
         return self._screen_ocr_enabled
+
+    @property
+    def use_free_llm(self) -> bool:
+        return self._use_free_llm
+
+    def set_use_free_llm(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if enabled == self._use_free_llm:
+            return
+        self._use_free_llm = enabled
+        if enabled:
+            from core.free_llm_manager import FreeLLMManager
+            self._free_llm_manager = FreeLLMManager(self._provider_factory)
+        else:
+            self._free_llm_manager = None
+        self.use_free_llm_changed.emit(enabled)
 
     @property
     def voice_stt_model_id(self) -> str:
@@ -154,6 +178,34 @@ class AppController(QObject):
     def set_default_mode(self, mode: PromptMode) -> None:
         self._default_mode = mode
         self.status_changed.emit(f"Mode set to {mode.label}")
+
+    def _active_stream_chat(
+        self,
+        messages: Sequence[LLMMessage],
+        cancel_event: threading.Event,
+        *,
+        on_llm_selected: Callable[[str], None] | None = None,
+    ):
+        """Route stream_chat through FreeLLMManager when use_free_llm is enabled.
+
+        ``on_llm_selected`` is called with the model display name as soon as the
+        first response chunk arrives so callers can annotate messages in real time.
+        """
+        if self._use_free_llm and self._free_llm_manager is not None:
+            def _on_cfg(cfg: "ProviderConfig") -> None:
+                if on_llm_selected is not None:
+                    on_llm_selected(cfg.name or cfg.display_name or cfg.model)
+            return self._free_llm_manager.stream_with_fallback(
+                messages,
+                cancel_event,
+                emergency_fallback=self._provider,
+                on_provider_selected=_on_cfg,
+            )
+        # Non-free mode — announce the configured model immediately.
+        if on_llm_selected is not None:
+            cfg = self._provider_config
+            on_llm_selected(cfg.name or cfg.display_name or cfg.model)
+        return self._provider.stream_chat(messages, cancel_event=cancel_event)
 
     def set_target_language(self, language: str) -> None:
         cleaned = language.strip() or DEFAULT_TARGET_LANGUAGE
@@ -395,7 +447,7 @@ class AppController(QObject):
 
                 result_text = ""
                 try:
-                    for chunk in self._provider.stream_chat(request_messages, cancel_event=cancel_event):
+                    for chunk in self._active_stream_chat(request_messages, cancel_event):
                         if cancel_event.is_set():
                             self.status_changed.emit("Request stopped")
                             return
@@ -470,8 +522,16 @@ class AppController(QObject):
 
                 request_messages = build_prompt_messages(selected_text, user_prompt, self._target_language)
                 response_text = ""
+
+                def _annotate_prompt_llm(model_name: str) -> None:
+                    try:
+                        updated = self._session_manager.update_message_llm_model(assistant_message.id, model_name)
+                        self.message_upserted.emit(updated)
+                    except KeyError:
+                        pass
+
                 try:
-                    for chunk in self._provider.stream_chat(request_messages, cancel_event=cancel_event):
+                    for chunk in self._active_stream_chat(request_messages, cancel_event, on_llm_selected=_annotate_prompt_llm):
                         if cancel_event.is_set():
                             self._finalize_cancelled_request(user_message.id, assistant_message.id, response_text)
                             return
@@ -848,8 +908,15 @@ class AppController(QObject):
         response_text = ""
         suppress_tts = False
 
+        def _annotate_llm(model_name: str) -> None:
+            try:
+                updated = self._session_manager.update_message_llm_model(assistant_message_id, model_name)
+                self.message_upserted.emit(updated)
+            except KeyError:
+                pass
+
         try:
-            for chunk in self._provider.stream_chat(messages, cancel_event=cancel_event):
+            for chunk in self._active_stream_chat(messages, cancel_event, on_llm_selected=_annotate_llm):
                 if cancel_event.is_set():
                     self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
                     return None, False

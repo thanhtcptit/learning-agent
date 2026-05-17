@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "openrouter",
+        "model": "google/gemma-4-31b-it:free",
+        "is_free": true
+    }
+]

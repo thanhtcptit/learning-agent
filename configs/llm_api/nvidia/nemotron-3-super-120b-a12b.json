@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "openrouter",
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "is_free": true
+    }
+]

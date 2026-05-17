@@ -44,6 +44,7 @@ class AppSettings:
     voice_stt_model_id: str = DEFAULT_VIETNAMESE_STT_MODEL_ID
     voice_tts_model_id: str = DEFAULT_VIETNAMESE_TTS_MODEL_ID
     voice_tts_voice_name: str = DEFAULT_VIETNAMESE_TTS_VOICE_NAME
+    use_free_llm: bool = False
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "AppSettings":
@@ -74,6 +75,7 @@ class AppSettings:
                 VIETNAMESE_TTS_VOICE_CHOICES,
                 DEFAULT_VIETNAMESE_TTS_VOICE_NAME,
             ),
+            use_free_llm=_coerce_bool(payload.get("use_free_llm"), default=False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +86,7 @@ class AppSettings:
             "voice_stt_model_id": self.voice_stt_model_id,
             "voice_tts_model_id": self.voice_tts_model_id,
             "voice_tts_voice_name": self.voice_tts_voice_name,
+            "use_free_llm": self.use_free_llm,
         }
 
 

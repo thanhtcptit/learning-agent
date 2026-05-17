@@ -87,6 +87,7 @@ class ProviderConfig:
     web_search_external_web_access: bool = True
     web_search_allowed_domains: tuple[str, ...] = ()
     max_output_tokens: int | None = None
+    is_free: bool = False
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any], *, family: str = "", name: str = "") -> "ProviderConfig":
@@ -134,6 +135,7 @@ class ProviderConfig:
             web_search_external_web_access=web_search_external_web_access,
             web_search_allowed_domains=allowed_domains,
             max_output_tokens=max_output_tokens,
+            is_free=_coerce_bool(payload.get("is_free"), default=False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -153,6 +155,7 @@ class ProviderConfig:
             "web_search_external_web_access": self.web_search_external_web_access,
             "web_search_allowed_domains": list(self.web_search_allowed_domains),
             "max_output_tokens": self.max_output_tokens,
+            "is_free": self.is_free,
         }
 
 

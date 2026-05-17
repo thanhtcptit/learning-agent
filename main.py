@@ -194,6 +194,7 @@ def main() -> int:
         default_mode=PromptMode.EXPLAIN,
         target_language=app_settings.preferred_language,
         screen_ocr_enabled=app_settings.screen_ocr_enabled,
+        use_free_llm=app_settings.use_free_llm,
         screen_ocr_service=ScreenOcrService(),
         voice_recorder=voice_recorder,
         stt_service=stt_service,
@@ -222,6 +223,7 @@ def main() -> int:
                     voice_stt_model_id=controller.voice_stt_model_id,
                     voice_tts_model_id=controller.voice_tts_model_id,
                     voice_tts_voice_name=controller.voice_tts_voice_name,
+                    use_free_llm=controller.use_free_llm,
                 ),
             )
         except Exception as exc:  # noqa: BLE001 - settings persistence should not block exit
@@ -233,6 +235,7 @@ def main() -> int:
     controller.voice_stt_model_changed.connect(lambda _model_id: save_settings())
     controller.voice_tts_model_changed.connect(lambda _model_id: save_settings())
     controller.voice_tts_voice_name_changed.connect(lambda _voice_name: save_settings())
+    controller.use_free_llm_changed.connect(lambda _enabled: save_settings())
 
     try:
         hotkey_listener.start()

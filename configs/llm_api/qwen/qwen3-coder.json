@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "openrouter",
+        "model": "qwen/qwen3-coder:free",
+        "is_free": true
+    }
+]

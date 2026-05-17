@@ -90,6 +90,10 @@ class ChatTranscript(QWidget):
                 font-weight: 700;
                 letter-spacing: 0.04em;
             }
+            QLabel#ChatTranscriptLlmModel {
+                color: #94a3b8;
+                font-size: 11px;
+            }
             QToolButton#ChatTranscriptOcrToggle {
                 background: #eff6ff;
                 color: #1d4ed8;
@@ -261,6 +265,13 @@ class ChatTranscript(QWidget):
             card_layout.addWidget(self._render_screen_context_box(screen_context))
 
         card_layout.addWidget(self._render_body_label(message))
+
+        if message.role == "assistant" and message.llm_model:
+            llm_label = QLabel(message.llm_model)
+            llm_label.setObjectName("ChatTranscriptLlmModel")
+            llm_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+            card_layout.addWidget(llm_label)
+
         return card
 
     def _insert_message_widget(self, message: ConversationMessage) -> None:

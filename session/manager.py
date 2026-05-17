@@ -61,6 +61,7 @@ class ConversationMessage:
     mode: str | None = None
     screen_context: str = ""
     include_in_context: bool = True
+    llm_model: str | None = None
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)
 
@@ -72,6 +73,7 @@ class ConversationMessage:
             "mode": self.mode,
             "screen_context": self.screen_context,
             "include_in_context": self.include_in_context,
+            "llm_model": self.llm_model,
             "created_at": _serialize_datetime(self.created_at),
             "updated_at": _serialize_datetime(self.updated_at),
         }
@@ -85,6 +87,7 @@ class ConversationMessage:
             mode=str(payload.get("mode")) if payload.get("mode") is not None else None,
             screen_context=str(payload.get("screen_context") or ""),
             include_in_context=bool(payload.get("include_in_context", True)),
+            llm_model=str(payload["llm_model"]) if payload.get("llm_model") else None,
             created_at=_parse_datetime(payload.get("created_at") or _utcnow().isoformat()),
             updated_at=_parse_datetime(payload.get("updated_at") or _utcnow().isoformat()),
         )
@@ -180,6 +183,15 @@ class ConversationSession:
         for message in self.messages:
             if message.id == message_id:
                 message.screen_context = screen_context.strip()
+                message.updated_at = _utcnow()
+                self.touch()
+                return message
+        raise KeyError(f"Unknown message id: {message_id}")
+
+    def update_message_llm_model(self, message_id: str, llm_model: str) -> ConversationMessage:
+        for message in self.messages:
+            if message.id == message_id:
+                message.llm_model = llm_model
                 message.updated_at = _utcnow()
                 self.touch()
                 return message
@@ -330,6 +342,15 @@ class SessionManager:
             for session in self._sessions:
                 try:
                     return session.update_message_screen_context(message_id, screen_context)
+                except KeyError:
+                    continue
+        raise KeyError(f"Unknown message id: {message_id}")
+
+    def update_message_llm_model(self, message_id: str, llm_model: str) -> ConversationMessage:
+        with self._lock:
+            for session in self._sessions:
+                try:
+                    return session.update_message_llm_model(message_id, llm_model)
                 except KeyError:
                     continue
         raise KeyError(f"Unknown message id: {message_id}")

@@ -136,6 +136,12 @@ class SettingsPopup(QDialog):
         self.hotkey_checkbox = QCheckBox("Enable global hotkeys")
         self.hotkey_checkbox.setObjectName("PopupHotkeyToggle")
 
+        self.free_llm_checkbox = QCheckBox("Auto: use free LLM")
+        self.free_llm_checkbox.setObjectName("PopupFreeLlmToggle")
+        self.free_llm_checkbox.setToolTip(
+            "Automatically rotate through free LLM providers via OpenRouter. Falls back to gpt-4.1-mini if all are unavailable."
+        )
+
         self.screen_ocr_checkbox = QCheckBox("Enable screen OCR context")
         self.screen_ocr_checkbox.setObjectName("PopupScreenOcrToggle")
         self.screen_ocr_checkbox.setToolTip(
@@ -177,6 +183,7 @@ class SettingsPopup(QDialog):
         card_layout.addLayout(header_layout)
         card_layout.addWidget(section_title)
         card_layout.addLayout(llm_layout)
+        card_layout.addWidget(self.free_llm_checkbox)
         card_layout.addWidget(self.hotkey_checkbox)
         card_layout.addWidget(self.screen_ocr_checkbox)
         card_layout.addWidget(self.screen_ocr_hint)
@@ -230,7 +237,7 @@ class SettingsPopup(QDialog):
             QComboBox#PopupModelCombo {
                 min-width: 0px;
             }
-            QCheckBox#PopupHotkeyToggle, QCheckBox#PopupScreenOcrToggle {
+            QCheckBox#PopupHotkeyToggle, QCheckBox#PopupScreenOcrToggle, QCheckBox#PopupFreeLlmToggle {
                 color: #0f172a;
                 font-weight: 600;
             }
@@ -306,6 +313,8 @@ class SettingsPopup(QDialog):
         self.voice_tts_combo.currentIndexChanged.connect(self._on_voice_tts_selected)
         self.voice_tts_voice_combo.currentIndexChanged.connect(self._on_voice_tts_voice_selected)
         self.hotkey_checkbox.toggled.connect(self._on_hotkey_toggled)
+        self.free_llm_checkbox.toggled.connect(self._on_free_llm_toggled)
+        self._controller.use_free_llm_changed.connect(self._sync_free_llm_toggle)
         self.screen_ocr_checkbox.toggled.connect(self._on_screen_ocr_toggled)
         self.session_combo.currentIndexChanged.connect(self._on_session_selected)
         self.new_session_button.clicked.connect(self._on_new_session)
@@ -320,6 +329,7 @@ class SettingsPopup(QDialog):
         self.hotkey_checkbox.setChecked(self._hotkey_listener.is_running)
         self.hotkey_checkbox.blockSignals(False)
         self._sync_screen_ocr_toggle(self._controller.screen_ocr_enabled)
+        self._sync_free_llm_toggle(self._controller.use_free_llm)
         self._sync_llm_selection(self._controller.provider_config)
         self._sync_voice_stt_selection(self._controller.voice_stt_model_id)
         self._sync_voice_tts_selection(self._controller.voice_tts_model_id)
@@ -688,6 +698,23 @@ class SettingsPopup(QDialog):
             return
 
         self._controller.set_screen_ocr_enabled(enabled)
+
+    def _on_free_llm_toggled(self, enabled: bool) -> None:
+        if self._updating:
+            return
+
+        self._controller.set_use_free_llm(enabled)
+        self.model_combo.setEnabled(not enabled)
+
+    def _sync_free_llm_toggle(self, enabled: bool) -> None:
+        self._updating = True
+        try:
+            self.free_llm_checkbox.blockSignals(True)
+            self.free_llm_checkbox.setChecked(bool(enabled))
+            self.free_llm_checkbox.blockSignals(False)
+            self.model_combo.setEnabled(not bool(enabled))
+        finally:
+            self._updating = False
 
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)

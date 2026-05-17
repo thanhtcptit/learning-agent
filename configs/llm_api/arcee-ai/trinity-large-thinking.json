@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "openrouter",
+        "model": "arcee-ai/trinity-large-thinking:free",
+        "is_free": true
+    }
+]
