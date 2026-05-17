@@ -239,22 +239,38 @@ class GlobalHotkeyListener(QObject):
     hotkey_triggered = Signal(object)
     status_changed = Signal(str)
 
-    def __init__(self, hotkey_map: Mapping[str, object] | None = None) -> None:
+    _LEADER_COMBO = "<alt>+q"
+    _LEADER_INTERNAL_ACTION = "__leader__"
+    _LEADER_TIMEOUT_SECONDS = 2.0
+
+    _DEFAULT_LEADER_MAP: dict[str, object] = {
+        "d": PromptMode.DEFINITION,
+        "e": PromptMode.EXPLAIN,
+        "p": PROMPT_HOTKEY_ACTION,
+        "r": PromptMode.REWRITE,
+        "s": PromptMode.SUMMARY,
+        "v": VOICE_HOTKEY_ACTION,
+        "w": TOGGLE_WAKE_WORD_HOTKEY_ACTION,
+        "h": TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
+        "l": TOGGLE_LANGUAGE_HOTKEY_ACTION,
+        "x": EXIT_HOTKEY_ACTION,
+    }
+
+    def __init__(
+        self,
+        hotkey_map: Mapping[str, object] | None = None,
+        leader_map: Mapping[str, object] | None = None,
+    ) -> None:
         super().__init__()
+        # The backend only needs to register the single leader combo.
+        # If a custom hotkey_map is supplied (e.g. in tests), use it as-is
+        # so existing tests continue to work unchanged.
+        self._custom_hotkey_map = hotkey_map is not None
         self._hotkey_map = dict(
-            hotkey_map
-            or {
-                "<alt>+d": PromptMode.DEFINITION,
-                "<alt>+e": PromptMode.EXPLAIN,
-                "<alt>+p": PROMPT_HOTKEY_ACTION,
-                "<alt>+r": PromptMode.REWRITE,
-                "<alt>+s": PromptMode.SUMMARY,
-                "<alt>+v": VOICE_HOTKEY_ACTION,
-                "<alt>+w": TOGGLE_WAKE_WORD_HOTKEY_ACTION,
-                "<alt>+h": TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
-                "<alt>+l": TOGGLE_LANGUAGE_HOTKEY_ACTION,
-                "<alt>+x": EXIT_HOTKEY_ACTION,
-            }
+            hotkey_map or {self._LEADER_COMBO: self._LEADER_INTERNAL_ACTION}
+        )
+        self._leader_map: dict[str, object] = dict(
+            leader_map or self._DEFAULT_LEADER_MAP
         )
         self._backend: _HotkeyBackend | None = None
 
@@ -266,7 +282,8 @@ class GlobalHotkeyListener(QObject):
         if self._backend is not None:
             return
 
-        backend = _create_hotkey_backend(self._hotkey_map, self.hotkey_triggered.emit)
+        trigger = self._handle_trigger if not self._custom_hotkey_map else self.hotkey_triggered.emit
+        backend = _create_hotkey_backend(self._hotkey_map, trigger)
         backend.start()
         self._backend = backend
         self.status_changed.emit("Hotkeys active")
@@ -277,3 +294,42 @@ class GlobalHotkeyListener(QObject):
         if backend is not None:
             backend.stop()
             self.status_changed.emit("Hotkeys stopped")
+
+    # ------------------------------------------------------------------
+    # Leader key internals
+    # ------------------------------------------------------------------
+
+    def _handle_trigger(self, action: object) -> None:
+        """Called by the backend. Intercepts the leader action."""
+        if action == self._LEADER_INTERNAL_ACTION:
+            threading.Thread(target=self._capture_leader_key, daemon=True).start()
+        else:
+            self.hotkey_triggered.emit(action)
+
+    def _capture_leader_key(self) -> None:
+        """Waits up to _LEADER_TIMEOUT_SECONDS for the follow-up key."""
+        try:
+            from pynput.keyboard import Key, Listener
+        except ImportError:
+            return
+
+        done = threading.Event()
+
+        def on_press(key: Any) -> bool | None:
+            # Ignore bare modifier keys (Shift, Ctrl, Alt, Win, etc.)
+            if isinstance(key, Key):
+                return None  # keep listening
+
+            char = getattr(key, "char", None)
+            if char is not None:
+                action = self._leader_map.get(char.lower())
+                if action is not None:
+                    self.hotkey_triggered.emit(action)
+
+            done.set()
+            return False  # stop listener after the first non-modifier key
+
+        listener = Listener(on_press=on_press, suppress=True)
+        listener.start()
+        done.wait(timeout=self._LEADER_TIMEOUT_SECONDS)
+        listener.stop()

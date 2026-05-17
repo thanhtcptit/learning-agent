@@ -112,12 +112,7 @@ class HotkeyActionRouter(QObject):
         if not user_prompt:
             return
 
-        # Show the floating status bubble immediately ("Processing") rather than
-        # opening the chat window — the window opens when the response is ready.
-        show_floating_helper = getattr(self._window, "_show_floating_helper", None)
-        if callable(show_floating_helper):
-            show_floating_helper()
-
+        self._window.request_hotkey_presentation()
         if not self._controller.is_busy and self._window.consume_new_session_request():
             self._controller.create_session()
         self._controller.handle_prompt_hotkey(captured_text, user_prompt)

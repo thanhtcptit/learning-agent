@@ -46,7 +46,7 @@ class AppController(QObject):
     status_changed = Signal(str)
     error_occurred = Signal(str)
     busy_changed = Signal(bool)
-    prompt_response_ready = Signal()
+    hotkey_response_ready = Signal()
 
     def __init__(
         self,
@@ -497,7 +497,6 @@ class AppController(QObject):
                 except Exception as exc:  # noqa: BLE001
                     self.error_occurred.emit(f"Failed to copy response to clipboard: {exc}")
 
-                self.prompt_response_ready.emit()
                 self.status_changed.emit("Ready")
             except Exception as exc:  # noqa: BLE001
                 self.error_occurred.emit(f"Prompt hotkey failed: {exc}")

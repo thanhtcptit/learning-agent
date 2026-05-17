@@ -485,6 +485,7 @@ class MainWindow(QMainWindow):
         self._controller = controller
         self._hotkey_listener = hotkey_listener
         self._hotkey_pending = False
+        self._hotkey_presentation_pending = False
         self._allow_close = False
         self._tray_icon: QSystemTrayIcon | None = None
         self._floating_helper: QWidget | None = None
@@ -667,7 +668,7 @@ class MainWindow(QMainWindow):
         self._controller.busy_changed.connect(self._set_busy)
         self._controller.current_language_changed.connect(self._set_current_language)
         self._controller.status_changed.connect(self._set_status)
-        self._controller.prompt_response_ready.connect(self._show_for_hotkey)
+        self._controller.hotkey_response_ready.connect(self._focus_for_hotkey)
         self._hotkey_listener.hotkey_triggered.connect(self._queue_hotkey_presentation)
 
         self._escape_shortcut = QShortcut(QKeySequence("Esc"), self)
@@ -856,11 +857,8 @@ class MainWindow(QMainWindow):
 
     def _queue_hotkey_presentation(self, mode: object | None = None) -> None:
         if mode == VOICE_HOTKEY_ACTION:
-            if self.isMinimized() or getattr(self, "_tray_hidden", False):
-                return
-
-            delay_ms = getattr(self, "HOTKEY_PRESENTATION_DELAY_MS", MainWindow.HOTKEY_PRESENTATION_DELAY_MS)
-            QTimer.singleShot(delay_ms, self._show_for_hotkey)
+            self._hotkey_presentation_pending = True
+            _call_optional_method(self, "_show_floating_helper")
             return
 
         if not isinstance(mode, PromptMode) and mode is not None:
@@ -869,12 +867,17 @@ class MainWindow(QMainWindow):
         if mode is PromptMode.REWRITE:
             return
 
-        self._hotkey_pending = True
-        if mode is PromptMode.DEFINITION and getattr(self._controller, "screen_ocr_enabled", False):
-            return
+        self._hotkey_presentation_pending = True
+        _call_optional_method(self, "_show_floating_helper")
 
-        delay_ms = getattr(self, "HOTKEY_PRESENTATION_DELAY_MS", MainWindow.HOTKEY_PRESENTATION_DELAY_MS)
-        QTimer.singleShot(delay_ms, self._show_for_hotkey)
+    def request_hotkey_presentation(self) -> None:
+        """Signal that a hotkey-triggered LLM request is starting.
+
+        Shows the floating status bubble and defers the chat window until
+        the response is ready.
+        """
+        self._hotkey_presentation_pending = True
+        _call_optional_method(self, "_show_floating_helper")
 
     def present_prompt_hotkey(self) -> None:
         self._queue_hotkey_presentation()
@@ -926,6 +929,9 @@ class MainWindow(QMainWindow):
     def _focus_for_hotkey(self) -> None:
         if not self.isVisible():
             self._show_for_hotkey()
+        else:
+            _call_optional_method(self, "_hide_floating_helper")
+            self._scroll_transcript_to_bottom()
 
         self.activateWindow()
         self.input_box.setFocus(Qt.FocusReason.ShortcutFocusReason)
@@ -997,3 +1003,6 @@ class MainWindow(QMainWindow):
         self.send_button.setText("Thinking..." if busy else "Send")
         self.stop_button.setEnabled(busy)
         self.input_box.setEnabled(not busy)
+        if not busy and getattr(self, "_hotkey_presentation_pending", False):
+            self._hotkey_presentation_pending = False
+            self._focus_for_hotkey()
