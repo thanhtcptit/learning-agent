@@ -30,6 +30,7 @@ class PromptInputDialog(QDialog):
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setObjectName("PromptInputDialog")
         self.setFixedWidth(self._DIALOG_WIDTH)
 
