@@ -167,6 +167,18 @@ class AppController(QObject):
     def provider_config(self) -> ProviderConfig:
         return self._provider_config
 
+    def _current_model_label(self) -> str:
+        """Return the model label to show immediately on a new assistant message.
+
+        For free mode a placeholder is returned because the actual provider is
+        not yet known; it will be overwritten by _annotate_llm once the first
+        response chunk arrives.
+        """
+        if self._use_free_llm:
+            return "Free"
+        cfg = self._provider_config
+        return cfg.name or cfg.display_name or cfg.model
+
     @property
     def current_session(self) -> ConversationSession:
         return self._session_manager.current_session()
@@ -192,15 +204,35 @@ class AppController(QObject):
         first response chunk arrives so callers can annotate messages in real time.
         """
         if self._use_free_llm and self._free_llm_manager is not None:
+            _annotated: list[bool] = [False]
+
             def _on_cfg(cfg: "ProviderConfig") -> None:
+                _annotated[0] = True
                 if on_llm_selected is not None:
                     on_llm_selected(cfg.name or cfg.display_name or cfg.model)
-            return self._free_llm_manager.stream_with_fallback(
-                messages,
-                cancel_event,
-                emergency_fallback=self._provider,
-                on_provider_selected=_on_cfg,
-            )
+
+            def _on_attempt(cfg: "ProviderConfig") -> None:
+                if on_llm_selected is not None:
+                    on_llm_selected(cfg.name or cfg.display_name or cfg.model)
+
+            def _free_gen():
+                for chunk in self._free_llm_manager.stream_with_fallback(
+                    messages,
+                    cancel_event,
+                    emergency_fallback=self._provider,
+                    on_provider_selected=_on_cfg,
+                    on_provider_attempt=_on_attempt,
+                ):
+                    if not _annotated[0] and on_llm_selected is not None:
+                        # All named providers failed; emergency fallback (configured provider)
+                        # is responding — annotate it now on the first chunk.
+                        emergency_cfg = self._provider_config
+                        on_llm_selected(emergency_cfg.name or emergency_cfg.display_name or emergency_cfg.model)
+                        _annotated[0] = True
+                    yield chunk
+
+            return _free_gen()
+
         # Non-free mode — announce the configured model immediately.
         if on_llm_selected is not None:
             cfg = self._provider_config
@@ -514,6 +546,7 @@ class AppController(QObject):
                 self._emit_sessions_changed()
 
                 assistant_message = session.append_message("assistant", "", mode="prompt")
+                assistant_message.llm_model = self._current_model_label()
                 self.message_upserted.emit(assistant_message)
 
                 if cancel_event.is_set():
@@ -870,6 +903,7 @@ class AppController(QObject):
 
         history_messages = session.llm_history(exclude_last=1, limit=20)
         assistant_message = session.append_message("assistant", "", mode=stored_message_mode)
+        assistant_message.llm_model = self._current_model_label()
         self.message_upserted.emit(assistant_message)
 
         if cancel_event.is_set():

@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "bytedance/seed-oss-36b-instruct",
+        "is_free": true
+    }
+]

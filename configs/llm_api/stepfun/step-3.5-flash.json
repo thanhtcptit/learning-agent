@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "stepfun-ai/step-3.5-flash",
+        "is_free": true
+    }
+]

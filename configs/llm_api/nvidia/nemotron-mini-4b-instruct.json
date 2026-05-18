@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "nvidia/nemotron-mini-4b-instruct",
+        "is_free": true
+    }
+]

@@ -57,12 +57,15 @@ class FreeLLMManager:
         *,
         emergency_fallback: Any = None,
         on_provider_selected: Callable[[ProviderConfig], None] | None = None,
+        on_provider_attempt: Callable[[ProviderConfig], None] | None = None,
     ) -> Iterator[str]:
         """Yield response chunks, trying free providers in round-robin order.
 
         Falls back to gpt-4.1-mini if all free providers fail before yielding
         their first chunk.  If gpt-4.1-mini also fails, falls back to
         ``emergency_fallback`` (the caller's currently-configured provider).
+        ``on_provider_attempt`` is called immediately before each provider is
+        tried so the caller can show which provider is currently in progress.
         ``on_provider_selected`` is called with the winning ProviderConfig the
         first time a provider successfully yields a chunk.
         """
@@ -71,6 +74,9 @@ class FreeLLMManager:
         for cfg in ordered:
             if cancel_event.is_set():
                 return
+
+            if on_provider_attempt is not None:
+                on_provider_attempt(cfg)
 
             try:
                 provider = self._provider_factory(cfg)
@@ -93,6 +99,8 @@ class FreeLLMManager:
             return
 
         # All free providers failed — try gpt-4.1-mini as primary fallback.
+        if on_provider_attempt is not None:
+            on_provider_attempt(self._fallback_config)
         try:
             fallback_provider = self._provider_factory(self._fallback_config)
             gen = fallback_provider.stream_chat(messages, cancel_event=cancel_event)

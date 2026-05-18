@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "google/gemma-2-2b-it",
+        "is_free": true
+    }
+]

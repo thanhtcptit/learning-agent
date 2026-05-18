@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "mistralai/mistral-medium-3-instruct",
+        "is_free": true
+    }
+]

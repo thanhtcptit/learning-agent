@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "mistralai/magistral-small-2506",
+        "is_free": true
+    }
+]

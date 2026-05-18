@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "minimaxai/minimax-m2.7",
+        "is_free": true
+    }
+]

@@ -25,6 +25,11 @@ The goal is to create a **system-wide learning copilot** that works across all a
 * Remembers the last selected LLM configuration across restarts
 * OpenAI Responses API support for web search and reasoning-heavy models
 * Streaming responses (real-time token output)
+* Rewrite mode — rewrites selected text in the target language
+* Custom prompt mode — floating input dialog to apply an ad-hoc instruction to the selected text
+* Wake word detection — say the wake word (default: "Mario") to trigger voice mode hands-free
+* Free LLM mode — automatically round-robins across all `is_free` providers with gpt-4.1-mini as fallback
+* Browser integration — the assistant can open YouTube videos on request
 
 ---
 
@@ -60,7 +65,7 @@ uv sync
 # 🔧 How It Works
 
 1. User highlights text anywhere on screen
-2. Presses a shortcut (e.g., `Alt + D`, `Alt + E`, or `Alt + S`)
+2. Presses the leader shortcut `Alt + Q` followed by a mode key (see hotkeys below)
 3. Program:
 
    * Simulates `Ctrl + C`
@@ -73,7 +78,7 @@ uv sync
 
 Voice mode follows the same controller pipeline, but starts with microphone capture instead of clipboard selection:
 
-1. User presses `Alt + V`
+1. User presses `Alt + Q → V`
 2. Program records microphone audio until 2 seconds of silence
 3. The audio is transcribed locally with the selected STT backend
 4. The transcript is sent to the selected LLM
@@ -107,6 +112,18 @@ Summarize the following text in {target_language}:
 {text}
 ```
 
+### Rewrite
+
+```
+Rewrite the following text in {target_language}. Keep the meaning but improve clarity and style:
+
+{text}
+```
+
+### Custom Prompt
+
+User types a free-form instruction in the floating `Alt + Q → P` dialog. The instruction is applied to the currently highlighted text.
+
 ---
 
 # 📁 Project Structure
@@ -115,27 +132,36 @@ Summarize the following text in {target_language}:
 learning-agent/
 │
 ├── configs/
-│   ├── llm-api/              # Store LLM API JSON configs by family and model
+│   └── llm_api/              # LLM API JSON configs by family and model
+│       ├── gpt/              # GPT models (paid)
+│       ├── qwen/             # Qwen models (free tier available)
+│       └── ...               # Other families
 │
 ├── core/
-│   ├── hotkey.py             # Global keyboard listener
-│   ├── orchestrator.py       # Pipeline: hotkey → clipboard → prompt → LLM → UI
+│   ├── hotkey.py             # Leader-key global hotkey listener (Alt+Q chord)
+│   ├── orchestrator.py       # Pipeline: hotkey → clipboard/voice → prompt → LLM → UI
+│   ├── free_llm_manager.py   # Round-robin free-provider routing with fallback
+│   ├── wake_word_service.py  # Continuous wake word detection via faster-whisper
+│   ├── browser_service.py    # YouTube search-and-play browser integration
+│   └── ...                   # clipboard, OCR, STT, TTS, settings, …
+│
 ├── llm/
 │   ├── base.py               # LLM interface
-│   ├── openai_provider.py    # Compatibility alias
-│   ├── openrouter_provider.py
+│   ├── openai_provider.py    # OpenAI / OpenAI-compatible provider
+│   └── openrouter_provider.py
 │
 ├── prompts/
-│   ├── templates.py          # Prompt templates
+│   └── templates.py          # Prompt templates (Definition, Explain, Summary, Rewrite, Custom)
 │
 ├── session/
-│   ├── manager.py            # Session & conversation state
-
+│   └── manager.py            # Session & conversation state
+│
 ├── ui/
 │   ├── main_window.py        # Main chat window (PySide6)
 │   ├── chat_widget.py        # Chat message display
 │   ├── input_box.py          # User input component
-│   ├── settings_popup.py     # Compact settings popup
+│   ├── prompt_input_dialog.py # Floating custom-prompt dialog (Alt+Q → P)
+│   └── settings_popup.py     # Compact settings popup
 │
 ├── main.py                   # Entry point
 │
@@ -169,15 +195,21 @@ The build produces `dist\learning-agent.exe`. Keep API keys external by placing 
 ### 3. Use it
 
 * Highlight any text
-* Press:
+* Press `Alt + Q` (the leader key) then a mode key:
 
-  * `Alt + D` → definition mode
-  * `Alt + E` → explain mode
-  * `Alt + S` → summary mode
-  * `Alt + V` → voice mode
-  * `Alt + H` → hide or show the chat window
-  * `Alt + L` → toggle between the chosen language and English
-  * `Alt + X` → exit the program
+  | Second key | Action |
+  |---|---|
+  | `D` | Definition mode |
+  | `E` | Explain mode |
+  | `S` | Summary mode |
+  | `R` | Rewrite mode |
+  | `P` | Custom prompt (opens floating input dialog) |
+  | `V` | Voice mode (mic capture) |
+  | `W` | Toggle wake word listener |
+  | `H` | Hide / show the chat window |
+  | `L` | Toggle between the chosen language and English |
+  | `X` | Exit the program |
+
   * `Esc` → minimize the chat window to tray
   * `Stop` button → cancel the current request
 * Check chat window output
@@ -185,6 +217,12 @@ The build produces `dist\learning-agent.exe`. Keep API keys external by placing 
 * If OCR is enabled, click the OCR context toggle on a user query to reveal the captured screen text above that query
 
 The chosen language defaults to Vietnamese and is saved between runs. Screen OCR is off by default and can be enabled from the settings popup. When enabled, the app uses the selected text to localize a smaller OCR region before scanning it, but only for Definition mode.
+
+**Wake word mode** (`Alt + Q → W`) toggles the continuous wake word listener. When active, the app listens in the background via `faster-whisper` and triggers voice mode automatically when the configured wake word is detected. The default wake word is `Mario` and the default model is `small`. Override them with `LEARNING_AGENT_WAKE_WORD` and `LEARNING_AGENT_WAKE_WORD_DEVICE`.
+
+**Free LLM mode** can be selected from the settings popup. In this mode the app automatically picks an available `is_free` provider from `configs/llm_api/` (round-robin, starting from the last known-good one) and falls back to `gpt-4.1-mini` if all free providers fail.
+
+**Browser integration**: the assistant can open YouTube videos on request. When the selected LLM emits a `<<<BROWSER_ACTION>>>` block, the app parses it and opens the matching video in the default browser.
 
 Voice mode uses `sounddevice` for microphone capture, `openai/whisper-large-v3-turbo` through the Transformers Whisper loader for the default English/non-Vietnamese STT path, `faster-whisper` for the fallback Whisper STT path, `sherpa-onnx` for the Vietnamese Zipformer STT path, and Chatterbox for the default non-Vietnamese TTS path. For Vietnamese, the app now defaults to `hynt/Zipformer-30M-RNNT-6000h` for STT and VieNeu TTS v1 for speech. The settings popup includes a VieNeu model dropdown with VieNeu TTS v1, VieNeu TTS 0.3B Q4 GGUF, and VieNeu TTS 0.3B. The voice preset dropdown refreshes when you switch engines and currently follows VieNeu's published preset catalog: Vinh, Binh, Tuyen, Doan, Ly, and Ngoc. The selected model and preset are saved between runs. The Vietnamese reply is fed to VieNeu sentence by sentence so playback can begin sooner. If you need to force a device override, prefer `cuda` or `cuda:0`; the TTS backends normalize `gpu` to CUDA when the installed PyTorch build exposes it. The current VieNeu models are loaded through the SDK's standard backend, which handles both transformer and GGUF backbones, and the codec path depends on `torchao` so the local VieNeu loader can initialize correctly. If the non-Vietnamese TTS model cannot be loaded, the app falls back to the local Windows speech engine so the response is still spoken. Chatterbox uses CUDA automatically when the installed PyTorch build exposes it.
 

@@ -164,12 +164,23 @@ def _load_json(config_path: Path) -> Any:
         return json.load(handle)
 
 
+DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+
 def _default_provider_metadata(provider: str) -> dict[str, str]:
     provider_key = provider.strip().lower()
     if provider_key == "openai":
         return {
             "base_url": DEFAULT_OPENAI_BASE_URL,
             "api_key_env": "OPENAI_API_KEY",
+            "site_url_env": "",
+            "app_name_env": "",
+        }
+
+    if provider_key == "nvidia":
+        return {
+            "base_url": DEFAULT_NVIDIA_BASE_URL,
+            "api_key_env": "NVIDIA_API_KEY",
             "site_url_env": "",
             "app_name_env": "",
         }

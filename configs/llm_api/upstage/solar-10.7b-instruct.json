@@ -1,0 +1,7 @@
+[
+    {
+        "provider": "nvidia",
+        "model": "upstage/solar-10.7b-instruct",
+        "is_free": true
+    }
+]
