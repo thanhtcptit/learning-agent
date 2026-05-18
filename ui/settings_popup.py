@@ -438,7 +438,7 @@ class SettingsPopup(QDialog):
             self.model_combo.clear()
             for label, provider_config in model_options:
                 self.model_combo.addItem(label, provider_config)
-            self.model_combo.setEnabled(True)
+            self.model_combo.setEnabled(not self._controller.use_free_llm)
             model_index = self.model_combo.findData(resolved_provider_config)
             if model_index < 0:
                 model_index = 0
@@ -581,6 +581,9 @@ class SettingsPopup(QDialog):
         if self._updating:
             return
 
+        if self._controller.use_free_llm:
+            return
+
         self._apply_selected_provider()
 
     def _apply_selected_voice_stt_model(self) -> None:
@@ -705,6 +708,8 @@ class SettingsPopup(QDialog):
 
         self._controller.set_use_free_llm(enabled)
         self.model_combo.setEnabled(not enabled)
+        if not enabled:
+            self._sync_llm_selection(self._controller.provider_config)
 
     def _sync_free_llm_toggle(self, enabled: bool) -> None:
         self._updating = True
