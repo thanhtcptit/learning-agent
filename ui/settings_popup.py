@@ -438,7 +438,7 @@ class SettingsPopup(QDialog):
             self.model_combo.clear()
             for label, provider_config in model_options:
                 self.model_combo.addItem(label, provider_config)
-            self.model_combo.setEnabled(not self._controller.use_free_llm)
+            self.model_combo.setEnabled(True)
             model_index = self.model_combo.findData(resolved_provider_config)
             if model_index < 0:
                 model_index = 0
@@ -582,6 +582,13 @@ class SettingsPopup(QDialog):
             return
 
         if self._controller.use_free_llm:
+            selected = self._selected_provider_config()
+            if selected is not None:
+                if selected.is_free:
+                    self._controller.hint_free_llm_start(selected)
+                else:
+                    self._controller.set_use_free_llm(False)
+                    self._apply_selected_provider()
             return
 
         self._apply_selected_provider()
@@ -707,9 +714,8 @@ class SettingsPopup(QDialog):
             return
 
         self._controller.set_use_free_llm(enabled)
-        self.model_combo.setEnabled(not enabled)
         if not enabled:
-            self._sync_llm_selection(self._controller.provider_config)
+            self._apply_selected_provider()
 
     def _sync_free_llm_toggle(self, enabled: bool) -> None:
         self._updating = True
@@ -717,7 +723,6 @@ class SettingsPopup(QDialog):
             self.free_llm_checkbox.blockSignals(True)
             self.free_llm_checkbox.setChecked(bool(enabled))
             self.free_llm_checkbox.blockSignals(False)
-            self.model_combo.setEnabled(not bool(enabled))
         finally:
             self._updating = False
 

@@ -431,7 +431,7 @@ def test_settings_popup_refreshes_voice_preset_list_when_tts_model_changes() -> 
         settings_popup_module.vietnamese_tts_voice_choices_for_model = original_helper
 
 
-def test_settings_popup_sync_llm_selection_disables_combo_when_free_llm_is_on() -> None:
+def test_settings_popup_sync_llm_selection_keeps_combo_enabled_when_free_llm_is_on() -> None:
     openai_config = ProviderConfig(provider="openai", model="gpt-4.1", family="gpt", name="gpt-4.1")
 
     class DummyCombo:
@@ -499,7 +499,7 @@ def test_settings_popup_sync_llm_selection_disables_combo_when_free_llm_is_on() 
     popup = DummyPopup()
     settings_popup_module.SettingsPopup._sync_llm_selection(popup, openai_config)
 
-    assert popup.model_combo.enabled is False
+    assert popup.model_combo.enabled is True
 
 
 def test_settings_popup_sync_llm_selection_enables_combo_when_free_llm_is_off() -> None:
@@ -572,7 +572,7 @@ def test_settings_popup_sync_llm_selection_enables_combo_when_free_llm_is_off() 
     assert popup.model_combo.enabled is True
 
 
-def test_settings_popup_model_selection_ignored_when_free_llm_is_on() -> None:
+def test_settings_popup_non_free_model_selection_disables_auto_and_applies_when_free_llm_is_on() -> None:
     openai_config = ProviderConfig(provider="openai", model="gpt-4.1", family="gpt", name="gpt-4.1")
     openrouter_config = ProviderConfig(provider="openrouter", model="openai/gpt-4.1", family="gpt", name="gpt-4.1")
 
@@ -591,10 +591,70 @@ def test_settings_popup_model_selection_ignored_when_free_llm_is_on() -> None:
             self.provider_config = openai_config
             self.use_free_llm = True
             self.set_provider_calls: list[ProviderConfig] = []
+            self.set_use_free_llm_calls: list[bool] = []
 
         def set_provider(self, provider_config: ProviderConfig) -> None:
             self.set_provider_calls.append(provider_config)
             self.provider_config = provider_config
+
+        def set_use_free_llm(self, enabled: bool) -> None:
+            self.set_use_free_llm_calls.append(enabled)
+            self.use_free_llm = enabled
+
+    class DummyPopup:
+        def __init__(self) -> None:
+            self._controller = DummyController()
+            self._updating = False
+            self.model_combo = DummyCombo()
+
+        def _selected_provider_config(self) -> ProviderConfig | None:
+            data = self.model_combo.currentData()
+            if isinstance(data, ProviderConfig):
+                return data
+            return None
+
+        def _apply_selected_provider(self) -> None:
+            return settings_popup_module.SettingsPopup._apply_selected_provider(self)
+
+        def _sync_llm_selection(self, _config: object = None) -> None:
+            pass
+
+        def _set_status(self, text: str) -> None:
+            pass
+
+    popup = DummyPopup()
+    settings_popup_module.SettingsPopup._on_model_selected(popup, 0)
+
+    assert popup._controller.set_use_free_llm_calls == [False]
+    assert popup._controller.set_provider_calls == [openrouter_config]
+
+
+def test_settings_popup_free_model_selection_hints_rotation_start_when_free_llm_is_on() -> None:
+    free_config = ProviderConfig(provider="openrouter", model="some/free-model:free", family="some", name="free-model", is_free=True)
+    current_config = ProviderConfig(provider="openrouter", model="other/model:free", family="other", name="model", is_free=True)
+
+    class DummyCombo:
+        def __init__(self) -> None:
+            self.items: list[tuple[str, object]] = [("free-model (openrouter)", free_config)]
+            self.current_index = 0
+
+        def currentData(self) -> object | None:
+            if 0 <= self.current_index < len(self.items):
+                return self.items[self.current_index][1]
+            return None
+
+    class DummyController:
+        def __init__(self) -> None:
+            self.provider_config = current_config
+            self.use_free_llm = True
+            self.hint_calls: list[ProviderConfig] = []
+            self.set_provider_calls: list[ProviderConfig] = []
+
+        def hint_free_llm_start(self, config: ProviderConfig) -> None:
+            self.hint_calls.append(config)
+
+        def set_provider(self, provider_config: ProviderConfig) -> None:
+            self.set_provider_calls.append(provider_config)
 
     class DummyPopup:
         def __init__(self) -> None:
@@ -617,4 +677,5 @@ def test_settings_popup_model_selection_ignored_when_free_llm_is_on() -> None:
     popup = DummyPopup()
     settings_popup_module.SettingsPopup._on_model_selected(popup, 0)
 
+    assert popup._controller.hint_calls == [free_config]
     assert popup._controller.set_provider_calls == []

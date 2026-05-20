@@ -143,6 +143,11 @@ class AppController(QObject):
             self._free_llm_manager = None
         self.use_free_llm_changed.emit(enabled)
 
+    def hint_free_llm_start(self, config: ProviderConfig) -> None:
+        """Hint the free LLM manager to start rotation from the given provider."""
+        if self._free_llm_manager is not None:
+            self._free_llm_manager.mark_working(config)
+
     @property
     def voice_stt_model_id(self) -> str:
         return self._voice_stt_model_id
