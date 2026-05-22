@@ -25,6 +25,7 @@ PROMPT_HOTKEY_ACTION = "prompt"
 TOGGLE_LANGUAGE_HOTKEY_ACTION = "toggle_language"
 TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION = "toggle_window_visibility"
 TOGGLE_WAKE_WORD_HOTKEY_ACTION = "toggle_wake_word"
+TOGGLE_FLOATING_ICON_HOTKEY_ACTION = "toggle_floating_icon"
 
 _MODIFIER_TOKENS = {
     "<alt>": _MOD_ALT,
@@ -253,6 +254,7 @@ class GlobalHotkeyListener(QObject):
         "w": TOGGLE_WAKE_WORD_HOTKEY_ACTION,
         "h": TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
         "l": TOGGLE_LANGUAGE_HOTKEY_ACTION,
+        "m": TOGGLE_FLOATING_ICON_HOTKEY_ACTION,
         "x": EXIT_HOTKEY_ACTION,
     }
 

@@ -490,6 +490,7 @@ class MainWindow(QMainWindow):
         self._tray_icon: QSystemTrayIcon | None = None
         self._floating_helper: QWidget | None = None
         self._floating_helper_needs_default_position = True
+        self._floating_icon_user_hidden = False
         self._escape_shortcut: QShortcut | None = None
         self._initial_show_scroll_pending = True
         self._tray_hidden = False
@@ -799,11 +800,13 @@ class MainWindow(QMainWindow):
         if self._tray_icon is not None:
             self._tray_hidden = True
             self.hide()
-            _call_optional_method(self, "_show_floating_helper")
+            if not getattr(self, "_floating_icon_user_hidden", False):
+                _call_optional_method(self, "_show_floating_helper")
             return
 
         self.showMinimized()
-        _call_optional_method(self, "_show_floating_helper")
+        if not getattr(self, "_floating_icon_user_hidden", False):
+            _call_optional_method(self, "_show_floating_helper")
 
     def toggle_window_visibility(self) -> None:
         if self.isMinimized() or self._tray_hidden or not self.isVisible():
@@ -811,6 +814,18 @@ class MainWindow(QMainWindow):
             return
 
         self.request_minimize_to_tray()
+
+    def toggle_floating_icon(self) -> None:
+        helper = getattr(self, "_floating_helper", None)
+        if helper is None:
+            return
+
+        if helper.isVisible():
+            self._floating_icon_user_hidden = True
+            self._hide_floating_helper()
+        else:
+            self._floating_icon_user_hidden = False
+            self._show_floating_helper()
 
     def request_exit(self) -> None:
         _call_optional_method(self, "_hide_floating_helper")
@@ -831,11 +846,11 @@ class MainWindow(QMainWindow):
         if self._tray_icon is not None:
             self._tray_hidden = True
             self.hide()
-            _call_optional_method(self, "_show_floating_helper")
+            self._show_floating_helper()
             return
 
         self.showMinimized()
-        _call_optional_method(self, "_show_floating_helper")
+        self._show_floating_helper()
 
     def _scroll_latest_messages_after_initial_show(self) -> None:
         if not self._initial_show_scroll_pending:
@@ -858,7 +873,8 @@ class MainWindow(QMainWindow):
     def _queue_hotkey_presentation(self, mode: object | None = None) -> None:
         if mode == VOICE_HOTKEY_ACTION:
             self._hotkey_presentation_pending = True
-            _call_optional_method(self, "_show_floating_helper")
+            if not self.isMinimized():
+                QTimer.singleShot(MainWindow.HOTKEY_PRESENTATION_DELAY_MS, self._show_for_hotkey)
             return
 
         if not isinstance(mode, PromptMode) and mode is not None:
@@ -867,17 +883,21 @@ class MainWindow(QMainWindow):
         if mode is PromptMode.REWRITE:
             return
 
+        if mode is not PromptMode.EXPLAIN:
+            self._hotkey_pending = True
         self._hotkey_presentation_pending = True
-        _call_optional_method(self, "_show_floating_helper")
+
+        screen_ocr_enabled = getattr(getattr(self, "_controller", None), "screen_ocr_enabled", False)
+        skip_timer = (mode is PromptMode.DEFINITION and screen_ocr_enabled) or mode is PromptMode.EXPLAIN
+        if not skip_timer:
+            QTimer.singleShot(MainWindow.HOTKEY_PRESENTATION_DELAY_MS, self._show_for_hotkey)
 
     def request_hotkey_presentation(self) -> None:
         """Signal that a hotkey-triggered LLM request is starting.
 
-        Shows the floating status bubble and defers the chat window until
-        the response is ready.
+        Defers the chat window until the response is ready.
         """
         self._hotkey_presentation_pending = True
-        _call_optional_method(self, "_show_floating_helper")
 
     def present_prompt_hotkey(self) -> None:
         self._queue_hotkey_presentation()
@@ -993,7 +1013,6 @@ class MainWindow(QMainWindow):
 
         if self.isMinimized():
             self._start_new_session_on_next_mode = True
-            _call_optional_method(self, "_show_floating_helper")
             return
 
         _call_optional_method(self, "_hide_floating_helper")

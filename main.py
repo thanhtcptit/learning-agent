@@ -21,6 +21,7 @@ from core.clipboard import ClipboardService
 from core.hotkey import (
     EXIT_HOTKEY_ACTION,
     PROMPT_HOTKEY_ACTION,
+    TOGGLE_FLOATING_ICON_HOTKEY_ACTION,
     TOGGLE_LANGUAGE_HOTKEY_ACTION,
     TOGGLE_WAKE_WORD_HOTKEY_ACTION,
     TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
@@ -60,6 +61,10 @@ class HotkeyActionRouter(QObject):
 
         if action == TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION:
             self._window.toggle_window_visibility()
+            return
+
+        if action == TOGGLE_FLOATING_ICON_HOTKEY_ACTION:
+            self._window.toggle_floating_icon()
             return
 
         if action == TOGGLE_WAKE_WORD_HOTKEY_ACTION:

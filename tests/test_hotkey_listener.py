@@ -6,6 +6,7 @@ from prompts.templates import PromptMode
 
 from core.hotkey import (
     EXIT_HOTKEY_ACTION,
+    TOGGLE_FLOATING_ICON_HOTKEY_ACTION,
     TOGGLE_LANGUAGE_HOTKEY_ACTION,
     TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION,
     VOICE_HOTKEY_ACTION,
@@ -99,13 +100,18 @@ def test_global_hotkey_listener_toggles_running_state(monkeypatch) -> None:
 
     backend = backend_holder["backend"]
     assert backend.start_calls == 1
-    assert backend.hotkey_map["<alt>+d"] == PromptMode.DEFINITION
-    assert backend.hotkey_map["<alt>+e"] == PromptMode.EXPLAIN
-    assert backend.hotkey_map["<alt>+s"] == PromptMode.SUMMARY
-    assert backend.hotkey_map["<alt>+v"] == VOICE_HOTKEY_ACTION
-    assert backend.hotkey_map["<alt>+h"] == TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION
-    assert backend.hotkey_map["<alt>+l"] == TOGGLE_LANGUAGE_HOTKEY_ACTION
-    assert backend.hotkey_map["<alt>+x"] == EXIT_HOTKEY_ACTION
+    # The backend only registers the single leader combo; individual actions
+    # live in the leader_map and are dispatched after the follow-up key press.
+    assert backend.hotkey_map == {"<alt>+q": GlobalHotkeyListener._LEADER_INTERNAL_ACTION}
+    leader_map = listener._leader_map
+    assert leader_map["d"] == PromptMode.DEFINITION
+    assert leader_map["e"] == PromptMode.EXPLAIN
+    assert leader_map["s"] == PromptMode.SUMMARY
+    assert leader_map["v"] == VOICE_HOTKEY_ACTION
+    assert leader_map["h"] == TOGGLE_WINDOW_VISIBILITY_HOTKEY_ACTION
+    assert leader_map["m"] == TOGGLE_FLOATING_ICON_HOTKEY_ACTION
+    assert leader_map["l"] == TOGGLE_LANGUAGE_HOTKEY_ACTION
+    assert leader_map["x"] == EXIT_HOTKEY_ACTION
 
     backend.trigger(PromptMode.EXPLAIN)
     backend.fire(TOGGLE_LANGUAGE_HOTKEY_ACTION)

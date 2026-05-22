@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any, Callable, Sequence
 
 from PySide6.QtCore import QObject, Signal
@@ -954,18 +955,28 @@ class AppController(QObject):
             except KeyError:
                 pass
 
+        _emit_deadline = 0.0
+        _last_emitted_len = 0
         try:
             for chunk in self._active_stream_chat(messages, cancel_event, on_llm_selected=_annotate_llm):
                 if cancel_event.is_set():
                     self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
                     return None, False
                 response_text += chunk
-                updated_message = self._session_manager.update_message(assistant_message_id, response_text)
-                self.message_upserted.emit(updated_message)
+                _now = time.monotonic()
+                if _now >= _emit_deadline:
+                    updated_message = self._session_manager.update_message(assistant_message_id, response_text)
+                    self.message_upserted.emit(updated_message)
+                    _emit_deadline = _now + 0.05
+                    _last_emitted_len = len(response_text)
 
             if cancel_event.is_set():
                 self._finalize_cancelled_request(user_message_id, assistant_message_id, response_text)
                 return None, False
+
+            if len(response_text) > _last_emitted_len:
+                updated_message = self._session_manager.update_message(assistant_message_id, response_text)
+                self.message_upserted.emit(updated_message)
 
             if not response_text.strip():
                 response_text = "No response received."

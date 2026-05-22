@@ -362,7 +362,7 @@ def test_hotkey_window_defers_show_until_ocr_context_is_ready(monkeypatch) -> No
     assert window._hotkey_pending is False
 
 
-def test_hotkey_window_schedules_non_definition_modes_even_when_ocr_enabled(monkeypatch) -> None:
+def test_hotkey_window_skips_timer_for_explain_mode_even_when_ocr_disabled(monkeypatch) -> None:
     class DummyController:
         screen_ocr_enabled = True
 
@@ -396,16 +396,16 @@ def test_hotkey_window_schedules_non_definition_modes_even_when_ocr_enabled(monk
     monkeypatch.setattr(main_window_module.QTimer, "singleShot", staticmethod(fake_single_shot))
 
     main_window_module.MainWindow._queue_hotkey_presentation(window, PromptMode.EXPLAIN)
-    assert window._hotkey_pending is True
+    assert window._hotkey_pending is False
     assert window.show_calls == 0
-    assert scheduled == [main_window_module.MainWindow.HOTKEY_PRESENTATION_DELAY_MS]
+    assert scheduled == []
 
     main_window_module.MainWindow._maybe_present_for_hotkey(
         window,
         ConversationMessage(role="user", content="captured text", mode=PromptMode.EXPLAIN.value),
     )
 
-    assert window.present_calls == 1
+    assert window.present_calls == 0
     assert window._hotkey_pending is False
 
 

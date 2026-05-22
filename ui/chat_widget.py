@@ -295,6 +295,22 @@ class ChatTranscript(QWidget):
             self._render()
             return
 
+        # Fast path for assistant messages: update text labels in-place to avoid
+        # tearing down and recreating the entire widget tree on every streaming chunk.
+        if message.role == "assistant":
+            body_label = existing_widget.findChild(QLabel, "ChatTranscriptBody")
+            if body_label is not None:
+                content = escape(message.content).replace("\n", "<br />")
+                if not content.strip():
+                    content = "<span style='opacity: 0.7; font-style: italic; color: #64748b;'>Generating response...</span>"
+                body_label.setText(content)
+                llm_label = existing_widget.findChild(QLabel, "ChatTranscriptLlmModel")
+                if llm_label is not None and message.llm_model:
+                    llm_label.setText(message.llm_model)
+                self._content_widget.adjustSize()
+                self.scroll_to_bottom()
+                return
+
         index = self._message_index[message.id]
         self._content_layout.removeWidget(existing_widget)
         existing_widget.deleteLater()
