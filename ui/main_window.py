@@ -43,7 +43,7 @@ def _call_optional_method(target: object, method_name: str) -> None:
 
 
 def _create_mascot_icon() -> QIcon:
-    icon_path = get_bundle_data_root() / "assets" / "icon.jpg"
+    icon_path = get_bundle_data_root() / "assets" / "icon.png"
     if not icon_path.exists():
         raise FileNotFoundError(f"Robot mascot icon asset is missing: {icon_path}")
 
@@ -328,18 +328,18 @@ class FloatingStatusWidget(QWidget):
         self.icon_button.setStyleSheet(
             """
             QToolButton#FloatingHelperButton {
-                background: #ffffff;
-                border: 1px solid #dbe3ee;
+                background: rgba(120, 120, 120, 80);
+                border: 1px solid rgba(219, 227, 238, 160);
                 border-radius: 30px;
                 padding: 0px;
             }
             QToolButton#FloatingHelperButton:hover {
-                background: #eff6ff;
-                border-color: #93c5fd;
+                background: rgba(150, 150, 150, 180);
+                border-color: rgba(147, 197, 253, 200);
             }
             QToolButton#FloatingHelperButton:pressed {
-                background: #dbeafe;
-                border-color: #60a5fa;
+                background: rgba(219, 234, 254, 200);
+                border-color: rgba(96, 165, 250, 220);
             }
             """
         )
